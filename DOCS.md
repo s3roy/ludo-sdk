@@ -110,27 +110,77 @@ ui.isMyTurn()  // boolean
 
 ## Destroy room
 
-End the session cleanly — stops AI / absent / turn timers, unsubscribes, clears DOM, fires `onDestroy`.
+### Backend (authoritative) — `createLudoRoomHost`
+
+Your server owns the engine and can destroy the room for **all** clients:
 
 ```ts
-// local teardown
-ui.destroyRoom('finished')
-ui.destroy() // same as destroyRoom('client')
+import { createLudoRoomHost, offlineRoom } from '@ludorush/sdk'
 
-// notify host (controlled rooms) then tear down
-ui.destroyRoom('abandoned', true)
-// → onAction({ type: 'destroy', roomId, reason: 'abandoned' })
+const host = createLudoRoomHost({
+  room: { ...offlineRoom({ roomId: 'r1', players: 4 }), controlled: true, autoAi: false },
+  broadcast: (cmd, roomId) => io.to(roomId).emit('ludo', cmd),
+  onDestroyed: (reason) => redis.del(`room:${host.roomId}`),
+  onTurn: (color, state) => {},
+  onWin: (winner) => {},
+})
 
-// host → all clients
-ui.dispatch({ type: 'destroy', reason: 'host' })
+// client intents
+io.on('ludo-action', (action) => {
+  const result = host.handleAction(action)
+  if (!result.ok) socket.emit('ludo-error', result.error)
+})
 
-ui.isDestroyed() // true after teardown
+// admin / idle / matchmaker
+host.destroy('host')           // → broadcasts { type: 'destroy', reason: 'host' }
+host.handleAction({            // client asked to close
+  type: 'destroy', roomId: 'r1', reason: 'client',
+})
+host.handleAction({            // player left → presence disconnect;
+  type: 'leave', roomId: 'r1', color: 0, // destroys with 'abandoned' if no humans left
+})
+
+host.isDestroyed()
+host.whoseTurn()
+host.setPresence(2, 'ready', { name: 'Dev', id: 'u3' })
 ```
 
-| Reason (suggested) | Meaning |
-|--------------------|---------|
+| Host API | Effect |
+|----------|--------|
+| `destroy(reason)` | Broadcast `destroy` to every client, mark room dead |
+| `handleAction({ type: 'destroy' })` | Same, reason from client |
+| `handleAction({ type: 'leave' })` | Mark seat `disconnected`; auto-`abandoned` if no humans left |
+| `handleAction({ type: 'roll' \| 'move' })` | Validate turn → broadcast `dice` / `play` + `sync` |
+| `setPresence` / `setSeats` | Lobby updates → broadcast |
+
+Clients must mount with `controlled: true` and apply broadcasts:
+
+```ts
+socket.on('ludo', (cmd) => ui.dispatch(cmd))
+// cmd.type === 'destroy' → client tears down via dispatch (onDestroy fires)
+```
+
+### Client teardown
+
+```ts
+// local only
+ui.destroyRoom('finished')
+ui.destroy() // destroyRoom('client')
+
+// notify backend then tear down
+ui.destroyRoom('abandoned', true)
+// → onAction({ type: 'destroy', roomId, reason })
+
+// apply host destroy
+ui.dispatch({ type: 'destroy', reason: 'host' })
+
+ui.isDestroyed()
+```
+
+| Reason | Meaning |
+|--------|---------|
 | `host` | Server closed the room |
-| `client` | Local unmount |
+| `client` | Local unmount / player quit |
 | `finished` | After win / rematch flow |
 | `abandoned` | Last human left |
 | `error` | Fatal sync / network |

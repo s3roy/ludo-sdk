@@ -42,9 +42,10 @@
     "build:web": "vite build --config vite.playground.config.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "npx tsx src/core/smoke.ts",
+    "test:host": "npx tsx src/core/host-smoke.ts",
     "test:bots": "npx tsx src/core/bot-playthrough.ts",
     "test:e2e": "npx tsx src/core/e2e.ts",
-    "test": "npm run typecheck && npm run smoke && npm run test:bots && npm run test:e2e",
+    "test": "npm run typecheck && npm run smoke && npm run test:host && npm run test:bots && npm run test:e2e",
     "preview": "vite preview --config vite.playground.config.ts --port 5195"
   },
   "keywords": [

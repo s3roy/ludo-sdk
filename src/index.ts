@@ -81,6 +81,13 @@ export type {
 } from './sdk/room';
 
 export {
+  createLudoRoomHost,
+  roomConfigFromHost,
+  type LudoRoomHost,
+  type LudoRoomHostOptions,
+} from './sdk/host';
+
+export {
   normalizeTurnTimer,
   DEFAULT_TURN_TIMER,
   type TurnTimerAppliesTo,

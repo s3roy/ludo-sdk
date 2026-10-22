@@ -28,7 +28,7 @@ mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }))
 - **Turn timer** — blue rounded-rect border on the dice dock (visible for all seats); skip/auto on miss
 - **Seat presence** — `empty` → `joining` → `ready` / `disconnected` for lobby & away handling
 - **Lifecycle callbacks** — `onTurn` / `onMyTurn` / `onWin` / `onDestroy` / `onLegalMoves` / …
-- **destroyRoom** — tear down timers + UI; host can `dispatch({ type: 'destroy' })`
+- **destroyRoom** — client teardown; **`createLudoRoomHost`** — backend destroy / validate / broadcast
 
 ## Modes
 
