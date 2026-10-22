@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Ludo Rush · SDK</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Nunito", system-ui, sans-serif;
+        --bg: #07152e;
+        --bg-outer: #172642;
+        --card: #0b1933;
+        --text: #f8fafc;
+        --muted: #8192b0;
+        --line: #173d78;
+        --accent: #ffc21a;
+        --btn-roll-start: #ffe34d;
+        --btn-roll-end: #ffae00;
+        --btn-text: #10213c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background:
+          radial-gradient(ellipse 90% 60% at 50% -10%, #1a3a6b 0%, transparent 50%),
+          linear-gradient(180deg, var(--bg-outer) 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+      .page {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px 14px 40px;
+        display: grid;
+        gap: 16px;
+      }
+      @media (min-width: 800px) {
+        .page { grid-template-columns: 1fr 260px; align-items: start; }
+      }
+      h1 { font-size: 1.05rem; margin: 0 0 4px; font-weight: 900; }
+      .lede { color: var(--muted); font-size: 0.82rem; margin: 0 0 12px; line-height: 1.4; font-weight: 700; }
+      .panel {
+        background: color-mix(in srgb, var(--card) 88%, transparent);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 16px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 20px 50px #00000040;
+      }
+      .panel--stage {
+        background: transparent;
+        border: none;
+        padding: 0;
+        backdrop-filter: none;
+      }
+      label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; font-weight: 800; }
+      .field { margin-bottom: 10px; }
+      select, button {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid #254a82;
+        background: #10203b;
+        color: var(--text);
+        font: inherit;
+        font-weight: 700;
+      }
+      button.primary {
+        border: 1.5px solid #ffd65a;
+        background: linear-gradient(180deg, var(--btn-roll-start) 0%, var(--accent) 48%, var(--btn-roll-end) 100%);
+        color: var(--btn-text);
+        font-weight: 900;
+        cursor: pointer;
+        margin-top: 4px;
+        box-shadow: 0 4px 0 #c47f00;
+      }
+      #stage {
+        display: flex;
+        justify-content: center;
+        padding: 4px 0;
+      }
+      .hint { font-size: 0.72rem; color: var(--muted); margin-top: 10px; line-height: 1.45; font-weight: 700; }
+      code { font-size: 0.7rem; background: #071329; padding: 1px 4px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <main class="panel panel--stage">
+        <div id="stage"><div id="mount"></div></div>
+      </main>
+      <aside class="panel">
+        <h1>Host controls</h1>
+        <p class="lede">Simulates your backend — not part of the board UI.</p>
+        <div class="field">
+          <label for="mode">Mode</label>
+          <select id="mode">
+            <option value="classic">Classic · open 6 · win 4</option>
+            <option value="rush" selected>Rush · open any · win 2</option>
+            <option value="blitz">Blitz · open any · win 1</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="players">Seats</label>
+          <select id="players">
+            <option value="2">2 · diagonal (Red vs Yellow)</option>
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="diff">AI</label>
+          <select id="diff">
+            <option value="easy">Easy</option>
+            <option value="normal">Normal</option>
+            <option value="hard" selected>Hard</option>
+          </select>
+        </div>
+        <button class="primary" id="apply" type="button">Apply room config</button>
+        <p class="hint">
+          Production: create the room on your server, then
+          <code>mountLudoRoom(el, room)</code> with
+          <code>controlled: true</code> and push
+          <code>applyDice</code> / <code>syncState</code>.
+        </p>
+      </aside>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,68 @@
+export { createGame, LudoGame } from './core/game';
+export { listLegalMoves, rollDice, countFinished, hasWon } from './core/moves';
+export {
+  advanceToken,
+  enterBoard,
+  moveWaypoints,
+  progressScore,
+} from './core/path';
+export {
+  chooseAiMove,
+  playAiTurn,
+  playAiStep,
+  currentPlayerIsAi,
+  type AiDifficulty,
+} from './core/ai';
+export {
+  COLORS,
+  COLOR_NAMES,
+  COLOR_HEX,
+  COLOR_HIGHLIGHT,
+  COLOR_DARK,
+  COLOR_PANEL,
+  COLOR_BORDER,
+  HOME_PATH_HEX,
+  TRACK_LEN,
+  HOME_LEN,
+  START_INDEX,
+  HOME_ENTRY_INDEX,
+  SAFE_TRACK,
+  GAME_MODES,
+  tokensToWin,
+  canEnterOnRoll,
+  nextColor,
+  isSafeSquare,
+  seatColorsForCount,
+} from './core/constants';
+export type {
+  ColorId,
+  GameMode,
+  PlayerKind,
+  TokenState,
+  PlayerConfig,
+  Token,
+  LegalMove,
+  GamePhase,
+  GameEvent,
+  GameState,
+  EngineOptions,
+} from './core/types';
+
+export {
+  mountLudo,
+  mountLudoRoom,
+  createLudoGame,
+  offlineRoom,
+  type LudoMountOptions,
+  type LudoHandle,
+} from './sdk/mount';
+
+export type {
+  LudoRoomConfig,
+  LudoClientAction,
+  LudoHostCommand,
+  ActionContext,
+  ActionResult,
+} from './sdk/room';
+
+export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';

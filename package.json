@@ -1,0 +1,65 @@
+{
+  "name": "@ludorush/sdk",
+  "version": "0.1.0",
+  "description": "Open-source self-hosted Ludo web SDK — Classic/Rush/Blitz, AI seats, host-authoritative rooms",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/s3roy/ludo-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/s3roy/ludo-sdk/issues"
+  },
+  "homepage": "https://github.com/s3roy/ludo-sdk#readme",
+  "author": "Souvik Roy",
+  "type": "module",
+  "main": "./dist/ludo-sdk.umd.cjs",
+  "module": "./dist/ludo-sdk.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/ludo-sdk.js",
+      "require": "./dist/ludo-sdk.umd.cjs"
+    },
+    "./style.css": "./dist/ludo-sdk.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "DOCS.md",
+    "RULES.md",
+    "DESIGN.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "dev": "vite --config vite.playground.config.ts",
+    "build": "tsc --noEmit && vite build && vite build --config vite.playground.config.ts",
+    "build:sdk": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "smoke": "npx tsx src/core/smoke.ts",
+    "test:bots": "npx tsx src/core/bot-playthrough.ts",
+    "test:e2e": "npx tsx src/core/e2e.ts",
+    "test": "npm run typecheck && npm run smoke && npm run test:bots && npm run test:e2e",
+    "preview": "vite preview --config vite.playground.config.ts --port 5195"
+  },
+  "keywords": [
+    "ludo",
+    "sdk",
+    "game",
+    "web",
+    "ai",
+    "classic",
+    "rush"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.5",
+    "vite-plugin-dts": "^4.5.4"
+  }
+}
