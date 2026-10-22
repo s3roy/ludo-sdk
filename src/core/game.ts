@@ -225,6 +225,28 @@ export class LudoGame {
     return true;
   }
 
+  /**
+   * Forfeit the current seat’s action window (turn timer miss).
+   * Clears dice and advances to the next player.
+   */
+  forfeitTurn(): boolean {
+    if (this.state.phase === 'finished') return false;
+    if (
+      this.state.phase !== 'waiting_roll' &&
+      this.state.phase !== 'waiting_move'
+    ) {
+      return false;
+    }
+    const phase = this.state.phase;
+    const color = this.state.currentColor;
+    this.state.dice = null;
+    this.state.consecutiveSixes = 0;
+    this.state.phase = 'waiting_roll';
+    this.emit({ type: 'timeout', color, phase });
+    this.advanceTurn();
+    return true;
+  }
+
   private advanceTurn() {
     const order = this.state.players.map((p) => p.color);
     const idx = Math.max(0, order.indexOf(this.state.currentColor));

@@ -32,7 +32,26 @@ import {
   type LudoHostCommand,
   type LudoRoomConfig,
 } from './room';
+import {
+  normalizeTurnTimer,
+  setTimerRingProgress,
+  timerAppliesToSeat,
+  timerRingMarkup,
+  type TurnTimerAutoAction,
+  type TurnTimerConfig,
+  type TurnTimerSnapshot,
+  type TurnTimerTickContext,
+  type TurnTimeoutContext,
+} from './turnTimer';
 import '../ui/styles.css';
+
+export type {
+  TurnTimerAutoAction,
+  TurnTimerConfig,
+  TurnTimerSnapshot,
+  TurnTimerTickContext,
+  TurnTimeoutContext,
+} from './turnTimer';
 
 export type LudoMountOptions = {
   mode?: GameMode;
@@ -57,6 +76,11 @@ export type LudoMountOptions = {
   compact?: boolean;
   /** Show seat strip under board (default true). */
   showPlayers?: boolean;
+  /**
+   * Controllable turn clock (ring around dice).
+   * Pass `false` to force off. See `TurnTimerConfig`.
+   */
+  turnTimer?: TurnTimerConfig | false;
   onEvent?: (event: GameEvent, state: GameState) => void;
   onChange?: (state: GameState) => void;
   /** Called before local apply when user rolls/moves. */
@@ -64,6 +88,18 @@ export type LudoMountOptions = {
     action: LudoClientAction,
     ctx: ActionContext,
   ) => ActionResult | Promise<ActionResult>;
+  /**
+   * Seat ran out of time. Return an action to override `turnTimer.onTimeout`,
+   * or void to use the config default.
+   */
+  onTurnTimeout?: (
+    ctx: TurnTimeoutContext,
+  ) =>
+    | void
+    | TurnTimerAutoAction
+    | Promise<void | TurnTimerAutoAction>;
+  /** Fires ~10×/sec while the clock runs (for custom UI). */
+  onTurnTick?: (ctx: TurnTimerTickContext) => void;
   onReady?: (handle: LudoHandle) => void;
 };
 
@@ -72,6 +108,8 @@ export type LudoHandle = {
   getState: () => GameState;
   roll: () => void;
   move: (tokenId: string) => void;
+  /** Forfeit current seat (same as timer skip). */
+  forfeitTurn: () => boolean;
   /** Apply host dice (controlled rooms). */
   applyDice: (value: number) => number | null;
   /** Apply host move (controlled rooms). */
@@ -84,6 +122,13 @@ export type LudoHandle = {
   setAiDifficulty: (d: AiDifficulty) => void;
   setAutoAi: (on: boolean) => void;
   setInteractiveColors: (colors: ColorId[]) => void;
+  /** Merge / replace timer settings (`false` disables). */
+  setTurnTimer: (cfg: TurnTimerConfig | false) => void;
+  pauseTurnTimer: () => void;
+  resumeTurnTimer: () => void;
+  /** Restart countdown for the current seat (if applicable). */
+  resetTurnTimer: () => void;
+  getTurnTimer: () => TurnTimerSnapshot;
   reset: (opts?: LudoMountOptions) => void;
   destroy: () => void;
   setSoundEnabled: (on: boolean) => void;
@@ -144,6 +189,17 @@ export function mountLudo(
   let boardReady = false;
   let queue: Promise<void> = Promise.resolve();
 
+  let timerCfg = normalizeTurnTimer(opts.turnTimer, !!opts.controlled);
+  let timerRaf = 0;
+  let timerStartedAt = 0;
+  let timerPausedAt: number | null = null;
+  let timerAccumPaused = 0;
+  let timerManualPause = false;
+  let timerTurnId: number | null = null;
+  let timerColor: ColorId | null = null;
+  let timerDuration = timerCfg.durationMs;
+  let timerFiring = false;
+
   const soundOpts: SoundOptions =
     opts.sound === false
       ? { enabled: false }
@@ -159,6 +215,7 @@ export function mountLudo(
   const boardWrap = root.querySelector<HTMLElement>('[data-ludo-board]')!;
   const statusEl = root.querySelector<HTMLElement>('[data-ludo-status]')!;
   const diceHost = root.querySelector<HTMLElement>('[data-ludo-dice-host]')!;
+  const diceWrap = root.querySelector<HTMLElement>('[data-ludo-dice-wrap]')!;
   const playersEl = root.querySelector<HTMLElement>('[data-ludo-players]');
   const rollBtn = root.querySelector<HTMLButtonElement>('[data-ludo-roll]')!;
   const soundBtn = root.querySelector<HTMLButtonElement>('[data-ludo-sound]')!;
@@ -210,6 +267,191 @@ export function mountLudo(
     return interactive.has(color);
   }
 
+  function timerElapsedMs(): number {
+    if (!timerStartedAt) return 0;
+    const now = timerPausedAt ?? performance.now();
+    return Math.max(0, now - timerStartedAt - timerAccumPaused);
+  }
+
+  function timerRemainingMs(): number {
+    return Math.max(0, timerDuration - timerElapsedMs());
+  }
+
+  function stopTurnTimer(clearRing = true) {
+    if (timerRaf) cancelAnimationFrame(timerRaf);
+    timerRaf = 0;
+    timerStartedAt = 0;
+    timerPausedAt = null;
+    timerAccumPaused = 0;
+    timerTurnId = null;
+    timerColor = null;
+    if (clearRing) {
+      setTimerRingProgress(diceWrap, 0, false);
+    }
+  }
+
+  function syncTimerPauseForBusy() {
+    if (!timerCfg.enabled || !timerStartedAt) return;
+    if (!timerCfg.pauseWhileBusy) return;
+    if (busy && timerPausedAt == null && !timerManualPause) {
+      timerPausedAt = performance.now();
+    } else if (!busy && timerPausedAt != null && !timerManualPause) {
+      timerAccumPaused += performance.now() - timerPausedAt;
+      timerPausedAt = null;
+      if (!timerRaf) timerRaf = requestAnimationFrame(tickTurnTimer);
+    }
+  }
+
+  function seatTimed(state: GameState): boolean {
+    if (!timerCfg.enabled) return false;
+    if (state.phase === 'finished') return false;
+    if (state.phase !== 'waiting_roll' && state.phase !== 'waiting_move') {
+      return false;
+    }
+    const p = state.players.find((x) => x.color === state.currentColor);
+    return timerAppliesToSeat(timerCfg.appliesTo, state.currentColor, {
+      interactive,
+      kind: p?.kind ?? 'human',
+    });
+  }
+
+  function paintTimerRing() {
+    if (!timerCfg.showRing || !timerCfg.enabled || !timerStartedAt) {
+      setTimerRingProgress(diceWrap, 0, false);
+      return;
+    }
+    const ratio = timerRemainingMs() / timerDuration;
+    setTimerRingProgress(diceWrap, ratio, true);
+  }
+
+  function getTurnTimerSnapshot(): TurnTimerSnapshot {
+    const remaining = timerStartedAt ? timerRemainingMs() : 0;
+    return {
+      enabled: timerCfg.enabled,
+      running: !!timerStartedAt && timerPausedAt == null && !timerManualPause,
+      paused: !!timerStartedAt && (timerPausedAt != null || timerManualPause),
+      remainingMs: remaining,
+      durationMs: timerDuration,
+      ratio: timerDuration ? remaining / timerDuration : 0,
+      color: timerColor,
+      turnId: timerTurnId,
+    };
+  }
+
+  async function runTimeoutAction(action: TurnTimerAutoAction) {
+    if (action === 'none') return;
+    if (action === 'skip') {
+      game.forfeitTurn();
+      return;
+    }
+    if (action === 'auto') {
+      const s = game.getState();
+      // Auto-play for the timed seat (works even if human)
+      playAiStep(game, s.currentColor, opts.aiDifficulty ?? 'hard');
+    }
+  }
+
+  async function fireTurnTimeout() {
+    if (timerFiring || destroyed) return;
+    timerFiring = true;
+    const state = game.getState();
+    const phase =
+      state.phase === 'waiting_move' ? 'waiting_move' : 'waiting_roll';
+    const ctx: TurnTimeoutContext = {
+      color: state.currentColor,
+      phase,
+      turnId: state.turnId,
+      durationMs: timerDuration,
+      state,
+    };
+    stopTurnTimer(true);
+    showToast('Time!');
+    sounds.play('deny');
+
+    let action: TurnTimerAutoAction = timerCfg.onTimeout;
+    if (opts.onTurnTimeout) {
+      try {
+        const override = await opts.onTurnTimeout(ctx);
+        if (override) action = override;
+      } catch {
+        /* keep default */
+      }
+    }
+    await runTimeoutAction(action);
+    timerFiring = false;
+  }
+
+  function tickTurnTimer(now: number) {
+    timerRaf = 0;
+    if (destroyed || !timerCfg.enabled || !timerStartedAt) return;
+    if (timerPausedAt != null || timerManualPause) {
+      paintTimerRing();
+      return;
+    }
+    const remaining = Math.max(
+      0,
+      timerDuration - (now - timerStartedAt - timerAccumPaused),
+    );
+    paintTimerRing();
+    const s = game.getState();
+    opts.onTurnTick?.({
+      color: s.currentColor,
+      phase: s.phase,
+      turnId: s.turnId,
+      remainingMs: remaining,
+      durationMs: timerDuration,
+      ratio: remaining / timerDuration,
+    });
+    if (remaining <= 0) {
+      void fireTurnTimeout();
+      return;
+    }
+    timerRaf = requestAnimationFrame(tickTurnTimer);
+  }
+
+  function startTurnTimer(state: GameState) {
+    if (!seatTimed(state)) {
+      stopTurnTimer(true);
+      return;
+    }
+    if (
+      timerStartedAt &&
+      timerTurnId === state.turnId &&
+      timerColor === state.currentColor
+    ) {
+      // same window — keep counting
+      if (timerCfg.pauseWhileBusy) syncTimerPauseForBusy();
+      else if (!timerRaf && timerPausedAt == null && !timerManualPause) {
+        timerRaf = requestAnimationFrame(tickTurnTimer);
+      }
+      paintTimerRing();
+      return;
+    }
+    stopTurnTimer(false);
+    timerDuration = timerCfg.durationMs;
+    timerStartedAt = performance.now();
+    timerAccumPaused = 0;
+    timerPausedAt = null;
+    timerManualPause = false;
+    timerTurnId = state.turnId;
+    timerColor = state.currentColor;
+    if (timerCfg.pauseWhileBusy && busy) {
+      timerPausedAt = performance.now();
+      paintTimerRing();
+      return;
+    }
+    paintTimerRing();
+    timerRaf = requestAnimationFrame(tickTurnTimer);
+  }
+
+  function scheduleTurnTimer(state: GameState) {
+    if (!timerCfg.enabled) {
+      stopTurnTimer(true);
+      return;
+    }
+    startTurnTimer(state);
+  }
+
   function bind() {
     unsub?.();
     boardReady = false;
@@ -229,6 +471,7 @@ export function mountLudo(
 
     if (event?.type === 'roll') {
       busy = true;
+      syncTimerPauseForBusy();
       sounds.play('roll');
       await animateDiceRoll(diceHost, event.value, ROLL_MS);
       if (destroyed) return;
@@ -265,6 +508,7 @@ export function mountLudo(
 
     if (event?.type === 'move') {
       busy = true;
+      syncTimerPauseForBusy();
       paintChrome(state);
       // Place tokens at post-move state, then walk the mover cell-by-cell
       syncTokens(tokensLayer(), state, []);
@@ -300,7 +544,10 @@ export function mountLudo(
     opts.onChange?.(state);
 
     busy = false;
-    scheduleAi(game.getState());
+    syncTimerPauseForBusy();
+    const next = game.getState();
+    scheduleAi(next);
+    scheduleTurnTimer(next);
   }
 
   function paintChrome(state: GameState) {
@@ -451,7 +698,9 @@ export function mountLudo(
 
   function reset(next?: LudoMountOptions) {
     if (aiTimer) clearTimeout(aiTimer);
+    stopTurnTimer(true);
     if (next) opts = { ...opts, ...next };
+    timerCfg = normalizeTurnTimer(opts.turnTimer, !!opts.controlled);
     interactive = new Set(
       opts.interactiveColors ??
         resolveSeats(opts)
@@ -466,6 +715,7 @@ export function mountLudo(
   function destroy() {
     destroyed = true;
     if (aiTimer) clearTimeout(aiTimer);
+    stopTurnTimer(true);
     unsub?.();
     root.innerHTML = '';
     root.classList.remove('ludo-sdk', 'ludo-sdk--compact');
@@ -482,6 +732,7 @@ export function mountLudo(
     move: (tokenId: string) => {
       void requestMove(tokenId);
     },
+    forfeitTurn: () => game.forfeitTurn(),
     applyDice: (value: number) => game.applyDice(value),
     applyMove: (tokenId: string) => game.move(tokenId),
     syncState: (state, event) => game.syncState(state, event),
@@ -494,6 +745,7 @@ export function mountLudo(
         if (cmd.aiDifficulty) handle.setAiDifficulty(cmd.aiDifficulty);
         if (cmd.autoAi != null) handle.setAutoAi(cmd.autoAi);
         if (cmd.interactiveColors) handle.setInteractiveColors(cmd.interactiveColors);
+        if (cmd.turnTimer !== undefined) handle.setTurnTimer(cmd.turnTimer);
       }
     },
     setMode: (mode) => {
@@ -511,7 +763,61 @@ export function mountLudo(
       interactive = new Set(colors);
       opts.interactiveColors = colors;
       paint(game.getState(), null);
+      scheduleTurnTimer(game.getState());
     },
+    setTurnTimer: (cfg) => {
+      opts.turnTimer = cfg;
+      const was = timerCfg.enabled;
+      timerCfg = normalizeTurnTimer(cfg, !!opts.controlled);
+      if (typeof cfg === 'object' && cfg && typeof cfg.durationMs === 'number') {
+        timerDuration = timerCfg.durationMs;
+      }
+      if (!timerCfg.enabled) {
+        stopTurnTimer(true);
+        return;
+      }
+      if (!was) {
+        scheduleTurnTimer(game.getState());
+        return;
+      }
+      // keep remaining ratio when only toggling cosmetics; hard reset if duration changed mid-turn
+      if (timerStartedAt) {
+        timerDuration = timerCfg.durationMs;
+        paintTimerRing();
+        if (!timerRaf && timerPausedAt == null && !timerManualPause) {
+          timerRaf = requestAnimationFrame(tickTurnTimer);
+        }
+      } else {
+        scheduleTurnTimer(game.getState());
+      }
+    },
+    pauseTurnTimer: () => {
+      if (!timerStartedAt || timerManualPause) return;
+      timerManualPause = true;
+      if (timerPausedAt == null) timerPausedAt = performance.now();
+      if (timerRaf) cancelAnimationFrame(timerRaf);
+      timerRaf = 0;
+      paintTimerRing();
+    },
+    resumeTurnTimer: () => {
+      if (!timerStartedAt || !timerManualPause) return;
+      timerManualPause = false;
+      if (timerPausedAt != null) {
+        timerAccumPaused += performance.now() - timerPausedAt;
+        timerPausedAt = null;
+      }
+      if (timerCfg.pauseWhileBusy && busy) {
+        timerPausedAt = performance.now();
+        paintTimerRing();
+        return;
+      }
+      timerRaf = requestAnimationFrame(tickTurnTimer);
+    },
+    resetTurnTimer: () => {
+      stopTurnTimer(false);
+      scheduleTurnTimer(game.getState());
+    },
+    getTurnTimer: () => getTurnTimerSnapshot(),
     reset,
     destroy,
     setSoundEnabled: (on) => {
@@ -547,6 +853,7 @@ export function mountLudoRoom(
     aiDifficulty: room.aiDifficulty ?? 'hard',
     interactiveColors: room.interactiveColors,
     controlled: room.controlled ?? false,
+    turnTimer: extra.turnTimer ?? room.turnTimer,
   });
 }
 
@@ -568,7 +875,10 @@ function shellHtml(mode: GameMode, showPlayers: boolean): string {
     </div>
     <div class="ludo-sdk__board-wrap" data-ludo-board></div>
     <div class="ludo-sdk__controls">
-      <div class="ludo-sdk__dice-dock" data-ludo-dice-host tabindex="0" role="button" aria-label="Roll dice"></div>
+      <div class="ludo-sdk__dice-wrap" data-ludo-dice-wrap>
+        ${timerRingMarkup()}
+        <div class="ludo-sdk__dice-dock" data-ludo-dice-host tabindex="0" role="button" aria-label="Roll dice"></div>
+      </div>
       <button type="button" class="ludo-sdk__btn" data-ludo-roll>
         <span aria-hidden="true">🎲</span> Roll dice
       </button>

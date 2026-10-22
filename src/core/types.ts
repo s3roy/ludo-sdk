@@ -50,7 +50,13 @@ export type GameEvent =
   | { type: 'extra_turn'; color: ColorId; reason: 'six' | 'capture' | 'finish' }
   | { type: 'turn'; color: ColorId }
   | { type: 'win'; color: ColorId; ranking: ColorId[] }
-  | { type: 'no_moves'; color: ColorId };
+  | { type: 'no_moves'; color: ColorId }
+  /** Seat ran out of time (forfeit / miss). */
+  | {
+      type: 'timeout';
+      color: ColorId;
+      phase: 'waiting_roll' | 'waiting_move';
+    };
 
 export type GameState = {
   mode: GameMode;

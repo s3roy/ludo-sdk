@@ -166,11 +166,53 @@ g.move(req.tokenId)
 broadcast({ type: 'sync', state: g.getState() })
 ```
 
+## Turn timer (dice ring)
+
+Optional countdown around the dice. When a timed seat misses, you get `onTurnTimeout` and a configurable auto action.
+
+```ts
+mountLudoRoom('#board', room, {
+  turnTimer: {
+    enabled: true,
+    durationMs: 15_000,
+    appliesTo: 'interactive', // 'human' | 'all' | ColorId[]
+    showRing: true,
+    onTimeout: 'skip',        // 'skip' | 'auto' | 'none'
+    pauseWhileBusy: true,     // freeze during dice/move anim
+  },
+  onTurnTimeout: (ctx) => {
+    // analytics / host notify
+    // return 'auto' | 'skip' | 'none' to override config
+  },
+  onTurnTick: ({ remainingMs, ratio }) => {
+    // optional custom HUD
+  },
+})
+
+// runtime control
+ui.setTurnTimer({ enabled: true, durationMs: 20_000, onTimeout: 'auto' })
+ui.pauseTurnTimer()
+ui.resumeTurnTimer()
+ui.resetTurnTimer()
+ui.getTurnTimer() // { remainingMs, running, paused, … }
+ui.forfeitTurn()  // same as skip
+ui.dispatch({ type: 'config', turnTimer: { enabled: false } })
+```
+
+| `onTimeout` | Behaviour |
+|-------------|-----------|
+| `skip` | Forfeit seat → next player (`timeout` event) |
+| `auto` | Auto-roll / auto-pick move (AI difficulty) |
+| `none` | Callback only (host-authoritative rooms) |
+
+Default: timer **off**. If you enable without `onTimeout`, offline defaults to `skip`, `controlled` rooms to `none`.
+
 ## UI notes
 
 - Board is compact by default (`compact: true`)
 - No move history / mode pickers inside the board — host UI is yours
 - Legal pawns glow; seats show as initials only
+- Turn timer ring sits around the dice dock when enabled
 
 ## Scripts
 

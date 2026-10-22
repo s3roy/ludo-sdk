@@ -55,6 +55,11 @@ export {
   offlineRoom,
   type LudoMountOptions,
   type LudoHandle,
+  type TurnTimerAutoAction,
+  type TurnTimerConfig,
+  type TurnTimerSnapshot,
+  type TurnTimerTickContext,
+  type TurnTimeoutContext,
 } from './sdk/mount';
 
 export type {
@@ -64,5 +69,11 @@ export type {
   ActionContext,
   ActionResult,
 } from './sdk/room';
+
+export {
+  normalizeTurnTimer,
+  DEFAULT_TURN_TIMER,
+  type TurnTimerAppliesTo,
+} from './sdk/turnTimer';
 
 export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';

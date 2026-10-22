@@ -1,6 +1,7 @@
 import type { AiDifficulty } from '../core/ai';
 import { COLOR_NAMES, seatColorsForCount } from '../core/constants';
 import type { ColorId, GameEvent, GameMode, GameState, PlayerConfig } from '../core/types';
+import type { TurnTimerConfig } from './turnTimer';
 
 /**
  * Room config — typically created by your backend, then passed into the SDK.
@@ -18,6 +19,8 @@ export type LudoRoomConfig = {
   aiDifficulty?: AiDifficulty;
   /** When true, local roll/move are intents only — host must applyDice/syncState. */
   controlled?: boolean;
+  /** Optional client turn clock (also set via mount options / setTurnTimer). */
+  turnTimer?: TurnTimerConfig | false;
 };
 
 /** Intent from a client UI (send to your backend). */
@@ -36,6 +39,7 @@ export type LudoHostCommand =
       aiDifficulty?: AiDifficulty;
       autoAi?: boolean;
       interactiveColors?: ColorId[];
+      turnTimer?: TurnTimerConfig | false;
     };
 
 export type ActionContext = {
