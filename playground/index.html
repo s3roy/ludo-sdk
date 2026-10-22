@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Ludo Rush · SDK</title>
+    <meta name="description" content="Play Ludo in the browser — Classic, Rush, or Blitz vs AI. Open-source @ludorush/sdk demo." />
+    <meta name="theme-color" content="#07152E" />
+    <title>Play Ludo · Ludo Rush SDK</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
@@ -32,17 +34,53 @@
         color: var(--text);
       }
       .page {
-        max-width: 900px;
+        max-width: 920px;
         margin: 0 auto;
-        padding: 20px 14px 40px;
+        padding: 16px 14px 36px;
         display: grid;
-        gap: 16px;
+        gap: 14px;
       }
-      @media (min-width: 800px) {
-        .page { grid-template-columns: 1fr 260px; align-items: start; }
+      @media (min-width: 860px) {
+        .page {
+          grid-template-columns: 1fr 280px;
+          align-items: start;
+          padding-top: 24px;
+        }
       }
-      h1 { font-size: 1.05rem; margin: 0 0 4px; font-weight: 900; }
-      .lede { color: var(--muted); font-size: 0.82rem; margin: 0 0 12px; line-height: 1.4; font-weight: 700; }
+      .brand {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px 16px;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+      .brand h1 span { color: var(--accent); }
+      .brand-links {
+        display: flex;
+        gap: 12px;
+        font-size: 0.78rem;
+        font-weight: 800;
+      }
+      .brand-links a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .brand-links a:hover { color: var(--text); }
+      .lede {
+        grid-column: 1 / -1;
+        margin: -4px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        font-weight: 700;
+        line-height: 1.4;
+      }
       .panel {
         background: color-mix(in srgb, var(--card) 88%, transparent);
         border: 1px solid var(--line);
@@ -56,10 +94,43 @@
         border: none;
         padding: 0;
         backdrop-filter: none;
+        box-shadow: none;
       }
-      label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; font-weight: 800; }
+      #stage {
+        display: flex;
+        justify-content: center;
+        padding: 4px 0;
+        min-height: 320px;
+      }
+      #mount:empty::before {
+        content: "Generating board…";
+        display: block;
+        padding: 48px 16px;
+        text-align: center;
+        color: var(--muted);
+        font-weight: 800;
+      }
+      h2 {
+        font-size: 0.95rem;
+        margin: 0 0 4px;
+        font-weight: 900;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.78rem;
+        margin: 0 0 14px;
+        line-height: 1.4;
+        font-weight: 700;
+      }
+      label {
+        display: block;
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-bottom: 4px;
+        font-weight: 800;
+      }
       .field { margin-bottom: 10px; }
-      select, button {
+      select, button, .room-id {
         width: 100%;
         padding: 10px 12px;
         border-radius: 12px;
@@ -69,65 +140,123 @@
         font: inherit;
         font-weight: 700;
       }
+      button {
+        cursor: pointer;
+      }
       button.primary {
         border: 1.5px solid #ffd65a;
         background: linear-gradient(180deg, var(--btn-roll-start) 0%, var(--accent) 48%, var(--btn-roll-end) 100%);
         color: var(--btn-text);
         font-weight: 900;
-        cursor: pointer;
         margin-top: 4px;
         box-shadow: 0 4px 0 #c47f00;
       }
-      #stage {
-        display: flex;
-        justify-content: center;
-        padding: 4px 0;
+      button.primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #c47f00; }
+      button.ghost {
+        margin-top: 8px;
+        background: #10203b;
+        border-color: #254a82;
+        color: var(--text);
       }
-      .hint { font-size: 0.72rem; color: var(--muted); margin-top: 10px; line-height: 1.45; font-weight: 700; }
-      code { font-size: 0.7rem; background: #071329; padding: 1px 4px; border-radius: 4px; }
+      .room-id {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-align: center;
+        user-select: all;
+      }
+      .hint {
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-top: 12px;
+        line-height: 1.45;
+        font-weight: 700;
+      }
+      .hint a { color: var(--accent); }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%) translateY(12px);
+        background: #0b1933;
+        border: 1px solid var(--line);
+        color: var(--text);
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        z-index: 50;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
     </style>
   </head>
   <body>
     <div class="page">
+      <header class="brand">
+        <h1>Ludo <span>Rush</span></h1>
+        <nav class="brand-links" aria-label="Links">
+          <a href="https://github.com/s3roy/ludo-sdk">GitHub</a>
+          <a href="https://github.com/s3roy/ludo-sdk#readme">Docs</a>
+        </nav>
+      </header>
+      <p class="lede">
+        Generate a local game in your browser — no account, no server. You are Red; bots fill the other seats.
+      </p>
+
       <main class="panel panel--stage">
         <div id="stage"><div id="mount"></div></div>
       </main>
+
       <aside class="panel">
-        <h1>Host controls</h1>
-        <p class="lede">Simulates your backend — not part of the board UI.</p>
+        <h2>New game</h2>
+        <p class="sub">Pick rules, then generate. Entirely client-side.</p>
+
         <div class="field">
           <label for="mode">Mode</label>
           <select id="mode">
-            <option value="classic">Classic · open 6 · win 4</option>
-            <option value="rush" selected>Rush · open any · win 2</option>
-            <option value="blitz">Blitz · open any · win 1</option>
+            <option value="classic">Classic · open on 6 · win with 4</option>
+            <option value="rush" selected>Rush · open any · win with 2</option>
+            <option value="blitz">Blitz · open any · win with 1</option>
           </select>
         </div>
         <div class="field">
-          <label for="players">Seats</label>
+          <label for="players">Players</label>
           <select id="players">
-            <option value="2">2 · diagonal (Red vs Yellow)</option>
-            <option value="3">3</option>
-            <option value="4" selected>4</option>
+            <option value="2">2 · you vs AI (diagonal)</option>
+            <option value="3">3 · you + 2 AI</option>
+            <option value="4" selected>4 · you + 3 AI</option>
           </select>
         </div>
         <div class="field">
-          <label for="diff">AI</label>
+          <label for="diff">AI difficulty</label>
           <select id="diff">
             <option value="easy">Easy</option>
             <option value="normal">Normal</option>
             <option value="hard" selected>Hard</option>
           </select>
         </div>
-        <button class="primary" id="apply" type="button">Apply room config</button>
+        <div class="field">
+          <label for="roomId">Game id</label>
+          <div class="room-id" id="roomId" aria-live="polite">—</div>
+        </div>
+
+        <button class="primary" id="newGame" type="button">Generate &amp; play</button>
+        <button class="ghost" id="share" type="button">Copy share link</button>
+
         <p class="hint">
-          Production: create the room on your server, then
-          <code>mountLudoRoom(el, room)</code> with
-          <code>controlled: true</code> and push
-          <code>applyDice</code> / <code>syncState</code>.
+          Building your own app?
+          <a href="https://github.com/s3roy/ludo-sdk/blob/main/DOCS.md">Embed the SDK</a>
+          with host-authoritative rooms.
         </p>
       </aside>
     </div>
+    <div class="toast" id="toast" role="status"></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

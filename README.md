@@ -2,6 +2,10 @@
 
 Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, and host-authoritative multiplayer hooks.
 
+### [▶ Play in the browser](https://s3roy.github.io/ludo-sdk/)
+
+Generate a game on the client (mode · seats · AI) and play vs bots — no signup. Share the URL to reopen the same settings.
+
 ```bash
 npm i @ludorush/sdk
 ```
@@ -78,6 +82,17 @@ Step-by-step contracts, handle API, and headless validation: **[DOCS.md](./DOCS.
 | [DESIGN.md](./DESIGN.md) | Colour system & CSS variables |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev setup & tests |
 
+## Play site (GitHub Pages)
+
+The playground in `playground/` is deployed to **https://s3roy.github.io/ludo-sdk/** on every push to `main` (see `.github/workflows/pages.yml`).
+
+```bash
+GITHUB_PAGES=1 npm run build:web   # → dist-playground/
+npm run preview                    # local check of that build
+```
+
+Query params (optional): `?mode=rush&players=4&ai=hard&room=ABC123`
+
 ## Develop
 
 ```bash
@@ -97,6 +112,7 @@ npm run build:sdk    # dist/ + style.css
 | `npm run test:bots` | Full AI games |
 | `npm run test:e2e` | Path / seats / AI gates (~2k asserts) |
 | `npm run build:sdk` | Library build |
+| `npm run build:web` | Static play site (`dist-playground/`) |
 
 ## Package exports
 
