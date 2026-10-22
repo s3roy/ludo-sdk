@@ -8,6 +8,7 @@ import type {
   PlayerConfig,
   SeatPresence,
 } from '../core/types';
+import type { RoomDestroyReason } from './lifecycle';
 import type { AbsentSeatConfig } from './presence';
 import type { TurnTimerConfig } from './turnTimer';
 
@@ -43,6 +44,16 @@ export type LudoClientAction =
       roomId: string;
       color: ColorId;
       presence: SeatPresence;
+    }
+  | {
+      type: 'leave';
+      roomId: string;
+      color: ColorId;
+    }
+  | {
+      type: 'destroy';
+      roomId: string;
+      reason?: RoomDestroyReason;
     };
 
 /** Commands your backend pushes to clients. */
@@ -58,6 +69,10 @@ export type LudoHostCommand =
       id?: string;
     }
   | { type: 'seats'; seats: PlayerConfig[] }
+  | {
+      type: 'destroy';
+      reason?: RoomDestroyReason;
+    }
   | {
       type: 'config';
       mode?: GameMode;

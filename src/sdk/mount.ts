@@ -33,6 +33,14 @@ import {
   type LudoHostCommand,
   type LudoRoomConfig,
 } from './room';
+import type {
+  DestroyContext,
+  LegalMovesContext,
+  LudoLifecycleCallbacks,
+  RoomDestroyReason,
+  TurnChangeContext,
+  WinContext,
+} from './lifecycle';
 import {
   isSeatAbsent,
   normalizePresence,
@@ -61,8 +69,17 @@ export type {
   TurnTimeoutContext,
 } from './turnTimer';
 export type { AbsentSeatConfig, AbsentSeatAction } from './presence';
+export type {
+  RoomDestroyReason,
+  TurnChangeContext,
+  WinContext,
+  DestroyContext,
+  LegalMovesContext,
+  PresenceChangeContext,
+  LudoLifecycleCallbacks,
+} from './lifecycle';
 
-export type LudoMountOptions = {
+export type LudoMountOptions = LudoLifecycleCallbacks & {
   mode?: GameMode;
   players?: number;
   /** Full seat list (overrides `players` + `aiColors`). */
@@ -97,7 +114,7 @@ export type LudoMountOptions = {
    */
   absentSeat?: AbsentSeatConfig;
   onEvent?: (event: GameEvent, state: GameState) => void;
-  /** Seat join / leave / ready (also via `dispatch({ type: 'presence' })`). */
+  /** @deprecated Prefer `onPresenceChange`. */
   onPresence?: (
     color: ColorId,
     presence: SeatPresence,
@@ -119,7 +136,7 @@ export type LudoMountOptions = {
     | void
     | TurnTimerAutoAction
     | Promise<void | TurnTimerAutoAction>;
-  /** Fires ~10×/sec while the clock runs (for custom UI). */
+  /** Fires while the clock runs (for custom UI). */
   onTurnTick?: (ctx: TurnTimerTickContext) => void;
   onReady?: (handle: LudoHandle) => void;
 };
@@ -127,6 +144,10 @@ export type LudoMountOptions = {
 export type LudoHandle = {
   game: LudoGame;
   getState: () => GameState;
+  /** Current seat colour. */
+  whoseTurn: () => ColorId | null;
+  /** True when an interactive seat must act now. */
+  isMyTurn: () => boolean;
   roll: () => void;
   move: (tokenId: string) => void;
   /** Forfeit current seat (same as timer skip). */
@@ -161,7 +182,15 @@ export type LudoHandle = {
   getSeats: () => PlayerConfig[];
   /** True when every non-AI seat is `joined` or `ready`. */
   allHumansPresent: () => boolean;
+  /**
+   * End the room session: stop timers, fire `onDestroy`, tear down UI.
+   * In controlled mode also emits `onAction({ type: 'destroy' })` when `notifyHost`.
+   */
+  destroyRoom: (reason?: RoomDestroyReason, notifyHost?: boolean) => void;
+  /** True after `destroy` / `destroyRoom`. */
+  isDestroyed: () => boolean;
   reset: (opts?: LudoMountOptions) => void;
+  /** Alias of `destroyRoom('client')` without host notify. */
   destroy: () => void;
   setSoundEnabled: (on: boolean) => void;
   sounds: LudoSounds;
@@ -222,6 +251,8 @@ export function mountLudo(
   let boardReady = false;
   /** Serializes dice / move animations so they never overlap. */
   let queue: Promise<void> = Promise.resolve();
+  let previousTurnColor: ColorId | null = null;
+  let lastLegalKey = '';
 
   let timerCfg = normalizeTurnTimer(opts.turnTimer, !!opts.controlled);
   let absentCfg: Required<AbsentSeatConfig> = {
@@ -362,9 +393,77 @@ export function mountLudo(
     patch?: Partial<Pick<PlayerConfig, 'name' | 'id' | 'kind'>>,
   ) {
     const s = game.getState();
+    const prev = s.players.find((p) => p.color === color)?.presence;
     const players = withPresence(s.players, color, presence, patch);
     game.syncState({ ...s, players }, { type: 'presence', color, presence });
-    opts.onPresence?.(color, presence, game.getState());
+    const next = game.getState();
+    opts.onPresence?.(color, presence, next);
+    opts.onPresenceChange?.({
+      color,
+      presence,
+      previous: prev,
+      state: next,
+    });
+  }
+
+  function emitTurnCallbacks(state: GameState) {
+    const ctx: TurnChangeContext = {
+      color: state.currentColor,
+      turnId: state.turnId,
+      isMine: canControl(state.currentColor),
+      phase: state.phase,
+      state,
+      previousColor: previousTurnColor,
+    };
+    opts.onTurn?.(ctx);
+    if (ctx.isMine && state.phase !== 'finished') {
+      opts.onMyTurn?.(ctx);
+    }
+    previousTurnColor = state.currentColor;
+  }
+
+  function emitLegalMovesIfNeeded(state: GameState) {
+    if (state.phase !== 'waiting_move' || state.dice == null) {
+      lastLegalKey = '';
+      return;
+    }
+    const moves = game.legalMoves();
+    const key = `${state.turnId}:${state.currentColor}:${state.dice}:${moves.map((m) => m.tokenId).join(',')}`;
+    if (key === lastLegalKey) return;
+    lastLegalKey = key;
+    const ctx: LegalMovesContext = {
+      color: state.currentColor,
+      dice: state.dice,
+      moves,
+      isMine: canControl(state.currentColor),
+      state,
+    };
+    opts.onLegalMoves?.(ctx);
+  }
+
+  function destroyRoom(reason: RoomDestroyReason = 'client', notifyHost = false) {
+    if (destroyed) return;
+    const snap = game.getState();
+    const ctx: DestroyContext = {
+      reason,
+      roomId: opts.roomId,
+      state: snap,
+    };
+    if (notifyHost && opts.onAction) {
+      void opts.onAction(
+        { type: 'destroy', roomId: opts.roomId ?? '', reason },
+        { state: snap, roomId: opts.roomId },
+      );
+    }
+    opts.onDestroy?.(ctx);
+    destroyed = true;
+    if (aiTimer) clearTimeout(aiTimer);
+    if (absentTimer) clearTimeout(absentTimer);
+    stopTurnTimer(true);
+    unsub?.();
+    unsub = null;
+    root.innerHTML = '';
+    root.classList.remove('ludo-sdk', 'ludo-sdk--compact');
   }
 
   function scheduleAbsent(state: GameState) {
@@ -564,9 +663,14 @@ export function mountLudo(
     // Capture is applied in engine before `move` — defer victim visuals to path anim
     if (event?.type === 'capture') {
       showToast('Captured!');
+      opts.onCapture?.(event.by, event.victimTokenId, state);
       if (event) opts.onEvent?.(event, state);
       opts.onChange?.(state);
       return;
+    }
+
+    if (event?.type === 'roll') {
+      opts.onRoll?.(event.color, event.value, state);
     }
 
     if (event?.type === 'extra_turn') {
@@ -582,9 +686,21 @@ export function mountLudo(
     if (event?.type === 'win') {
       showToast(`${COLOR_NAMES[event.color]} wins`);
       sounds.play('win');
+      const winCtx: WinContext = {
+        winner: event.color,
+        ranking: event.ranking,
+        state,
+      };
+      opts.onWin?.(winCtx);
     }
-    if (event?.type === 'turn') sounds.play('turn');
+    if (event?.type === 'turn') {
+      sounds.play('turn');
+      emitTurnCallbacks(state);
+    }
     if (event?.type === 'no_moves') sounds.play('nomove');
+    if (event?.type === 'presence') {
+      /* presence sync already notifies via setSeatPresence path */
+    }
 
     if (event?.type === 'move') {
       busy = true;
@@ -615,6 +731,7 @@ export function mountLudo(
       );
       if (destroyed) return;
       if (event.move.finishes) sounds.play('finish');
+      opts.onMove?.(event.color, event.tokenId, state, event);
       paint(state, event);
     } else {
       paint(state, event);
@@ -622,6 +739,7 @@ export function mountLudo(
 
     if (event) opts.onEvent?.(event, state);
     opts.onChange?.(state);
+    emitLegalMovesIfNeeded(game.getState());
 
     busy = false;
     syncTimerPauseForBusy();
@@ -815,21 +933,25 @@ export function mountLudo(
     bind();
   }
 
-  function destroy() {
-    destroyed = true;
-    if (aiTimer) clearTimeout(aiTimer);
-    if (absentTimer) clearTimeout(absentTimer);
-    stopTurnTimer(true);
-    unsub?.();
-    root.innerHTML = '';
-    root.classList.remove('ludo-sdk', 'ludo-sdk--compact');
-  }
-
   const handle: LudoHandle = {
     get game() {
       return game;
     },
     getState: () => game.getState(),
+    whoseTurn: () => {
+      if (destroyed) return null;
+      const s = game.getState();
+      return s.phase === 'finished' ? null : s.currentColor;
+    },
+    isMyTurn: () => {
+      if (destroyed) return false;
+      const s = game.getState();
+      return (
+        s.phase !== 'finished' &&
+        canControl(s.currentColor) &&
+        (s.phase === 'waiting_roll' || s.phase === 'waiting_move')
+      );
+    },
     roll: () => {
       void requestRoll();
     },
@@ -851,6 +973,8 @@ export function mountLudo(
         });
       } else if (cmd.type === 'seats') {
         handle.setSeats(cmd.seats);
+      } else if (cmd.type === 'destroy') {
+        destroyRoom(cmd.reason ?? 'host', false);
       } else if (cmd.type === 'config') {
         if (cmd.mode) handle.setMode(cmd.mode);
         if (cmd.aiDifficulty) handle.setAiDifficulty(cmd.aiDifficulty);
@@ -955,8 +1079,14 @@ export function mountLudo(
       const humans = game.getState().players.filter((p) => p.kind === 'human');
       return humans.every((p) => !isSeatAbsent(p.presence, p.kind));
     },
+    destroyRoom: (reason = 'client', notifyHost = false) => {
+      destroyRoom(reason, notifyHost);
+    },
+    isDestroyed: () => destroyed,
     reset,
-    destroy,
+    destroy: () => {
+      destroyRoom('client', false);
+    },
     setSoundEnabled: (on) => {
       sounds.setEnabled(on);
       syncSoundBtn();
@@ -969,6 +1099,9 @@ export function mountLudo(
 
   setDice(null, false);
   bind();
+  // Initial whose-turn for consumers
+  previousTurnColor = null;
+  emitTurnCallbacks(game.getState());
   opts.onReady?.(handle);
   return handle;
 }

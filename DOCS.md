@@ -1,18 +1,18 @@
 # @ludorush/sdk — production guide
 
-Self-hosted Ludo: **your backend owns the room**; this SDK is the rules engine + embeddable board.
+Self-hosted Ludo: **your backend owns the room**; this SDK is the rules engine + embeddable board + lifecycle callbacks.
 
 ```
 ┌─────────────┐     create room / seats      ┌──────────────┐
 │  Your API   │ ───────────────────────────► │  Postgres /  │
 │  (host)     │                              │  Redis       │
 └──────┬──────┘                              └──────────────┘
-       │ WS / SSE: sync | dice | config
+       │ WS / SSE: sync | dice | presence | destroy
        ▼
-┌─────────────┐   onAction(roll|move)        ┌──────────────┐
+┌─────────────┐   onAction(roll|move|leave|destroy)
 │  mountLudo  │ ───────────────────────────► │  Your API    │
 │  (client)   │ ◄─────────────────────────── │  validates   │
-└─────────────┘   applyDice / syncState      └──────────────┘
+└─────────────┘   applyDice / syncState / destroyRoom
 ```
 
 ## Install
@@ -48,28 +48,113 @@ const room = offlineRoom({
   humanColor: 0,
 })
 
-const game = mountLudoRoom('#board', room, { sound: true })
+const game = mountLudoRoom('#board', room, {
+  sound: true,
+  onTurn: ({ color, isMine }) => console.log('turn', color, isMine),
+  onMyTurn: () => console.log('your move'),
+  onWin: ({ winner }) => console.log('winner', winner),
+  onDestroy: ({ reason }) => console.log('room ended', reason),
+})
 ```
+
+## Lifecycle callbacks
+
+Wire these on `mountLudo` / `mountLudoRoom`. Raw engine events still arrive via `onEvent`.
+
+| Callback | When |
+|----------|------|
+| `onReady(handle)` | Mount finished |
+| `onTurn(ctx)` | Any seat’s turn started (`color`, `turnId`, `isMine`, `previousColor`) |
+| `onMyTurn(ctx)` | Interactive seat must act |
+| `onRoll(color, value, state)` | Dice result |
+| `onMove(color, tokenId, state, event)` | Token moved |
+| `onCapture(by, victimTokenId, state)` | Capture |
+| `onLegalMoves(ctx)` | Waiting for move — list of legal `moves` |
+| `onWin({ winner, ranking, state })` | Someone won |
+| `onTurnTimeout(ctx)` | Timer hit zero |
+| `onTurnTick(ctx)` | Timer tick (`remainingMs`, `ratio`) |
+| `onPresenceChange(ctx)` | Seat join / leave / ready |
+| `onPresence(...)` | Deprecated alias of presence |
+| `onDestroy({ reason, roomId, state })` | Room torn down |
+| `onAction(action, ctx)` | Client intent before apply (controlled rooms) |
+| `onEvent(event, state)` | Every engine event |
+| `onChange(state)` | After each paint/update |
+
+```ts
+const ui = mountLudoRoom('#board', room, {
+  controlled: true,
+  onAction: async (action) => {
+    await api.send(action)
+    return 'defer'
+  },
+  onTurn: ({ color, isMine, turnId }) => {
+    hud.setTurn(color, isMine)
+  },
+  onMyTurn: () => {
+    toast('Your turn')
+  },
+  onLegalMoves: ({ moves, isMine }) => {
+    if (isMine) highlight(moves)
+  },
+  onWin: ({ winner, ranking }) => {
+    showResults(winner, ranking)
+  },
+  onDestroy: ({ reason }) => {
+    leaveLobby(reason)
+  },
+})
+
+ui.whoseTurn() // ColorId | null
+ui.isMyTurn()  // boolean
+```
+
+## Destroy room
+
+End the session cleanly — stops AI / absent / turn timers, unsubscribes, clears DOM, fires `onDestroy`.
+
+```ts
+// local teardown
+ui.destroyRoom('finished')
+ui.destroy() // same as destroyRoom('client')
+
+// notify host (controlled rooms) then tear down
+ui.destroyRoom('abandoned', true)
+// → onAction({ type: 'destroy', roomId, reason: 'abandoned' })
+
+// host → all clients
+ui.dispatch({ type: 'destroy', reason: 'host' })
+
+ui.isDestroyed() // true after teardown
+```
+
+| Reason (suggested) | Meaning |
+|--------------------|---------|
+| `host` | Server closed the room |
+| `client` | Local unmount |
+| `finished` | After win / rematch flow |
+| `abandoned` | Last human left |
+| `error` | Fatal sync / network |
 
 ## Hosted room (backend-authoritative)
 
 ### 1. Backend creates the room
 
 ```ts
-// server — example shape (your stack)
 const room: LudoRoomConfig = {
   roomId: 'room_abc',
   mode: 'rush',
   seats: [
-    { id: 'u1', name: 'Asha', kind: 'human', color: 0 },
-    { id: 'u2', name: 'Bot', kind: 'ai', color: 1 },
-    { id: 'u3', name: 'Dev', kind: 'human', color: 2 },
-    { id: 'bot2', name: 'Bot2', kind: 'ai', color: 3 },
+    { id: 'u1', name: 'Asha', kind: 'human', color: 0, presence: 'ready' },
+    { id: 'u2', name: 'Bot', kind: 'ai', color: 1, presence: 'ready' },
+    { id: 'u3', name: 'Dev', kind: 'human', color: 2, presence: 'joining' },
+    { id: 'bot2', name: 'Bot2', kind: 'ai', color: 3, presence: 'ready' },
   ],
-  interactiveColors: [0], // this client's seat(s)
-  controlled: true,       // required for multiplayer fairness
-  autoAi: false,          // host runs AI or pure human seats
+  interactiveColors: [0],
+  controlled: true,
+  autoAi: false,
   aiDifficulty: 'normal',
+  absentSeat: { action: 'none' }, // host decides skips
+  turnTimer: { enabled: true, durationMs: 15_000, appliesTo: 'all' },
 }
 ```
 
@@ -80,33 +165,22 @@ const ui = mountLudoRoom('#board', room, {
   compact: true,
   sound: true,
   onAction: async (action) => {
-    // POST /rooms/:id/action  { type, tokenId? }
     await api.sendAction(action)
-    return 'defer' // wait for host broadcast
+    return 'defer'
   },
-  onEvent: (e, state) => {
-    // optional analytics
-  },
+  onTurn: (ctx) => api.broadcastTurn?.(ctx),
+  onDestroy: ({ reason }) => api.clearLocalRoom(reason),
 })
 ```
 
 ### 3. Host pushes commands
 
 ```ts
-// after validating roll
-ui.applyDice(serverDice)          // or
-ui.dispatch({ type: 'dice', value: 4 })
-
-// after validating move
+ui.applyDice(serverDice)
 ui.applyMove('red-0')
-
-// full resync (reconnect / mid-game join)
 ui.syncState(authoritativeState)
-
-// live config
-ui.setAiDifficulty('hard')
-ui.setMode('blitz')               // restarts local engine — prefer new room
-ui.setInteractiveColors([0, 2])   // shared device
+ui.setSeatPresence(2, 'ready', { name: 'Dev', id: 'u3' })
+ui.dispatch({ type: 'destroy', reason: 'host' })
 ```
 
 ### Action contract
@@ -116,7 +190,9 @@ ui.setInteractiveColors([0, 2])   // shared device
 ```ts
 { type: 'roll', roomId, color }
 { type: 'move', roomId, color, tokenId }
-{ type: 'presence', roomId, color, presence } // optional lobby intent
+{ type: 'presence', roomId, color, presence }
+{ type: 'leave', roomId, color }
+{ type: 'destroy', roomId, reason? }
 ```
 
 **Server → client** (`LudoHostCommand`):
@@ -127,6 +203,7 @@ ui.setInteractiveColors([0, 2])   // shared device
 { type: 'sync', state, event? }
 { type: 'presence', color, presence, name?, id? }
 { type: 'seats', seats }
+{ type: 'destroy', reason? }
 { type: 'config', mode?, aiDifficulty?, autoAi?, interactiveColors?, turnTimer?, absentSeat? }
 ```
 
@@ -134,29 +211,33 @@ ui.setInteractiveColors([0, 2])   // shared device
 
 | Return | Meaning |
 |--------|---------|
-| `'defer'` | Do nothing locally; host will `applyDice` / `syncState` |
+| `'defer'` | Wait for host `applyDice` / `syncState` |
 | `'allow'` | Apply with local RNG (offline only) |
-| `{ dice: n }` | Apply this face immediately (server already rolled) |
+| `{ dice: n }` | Apply this face immediately |
 
 ## Handle API
 
 ```ts
 type LudoHandle = {
+  game: LudoGame
   getState(): GameState
-  roll() / move(tokenId)
+  whoseTurn(): ColorId | null
+  isMyTurn(): boolean
+  roll() / move(tokenId) / forfeitTurn()
   applyDice(n) / applyMove(tokenId) / syncState(state)
   dispatch(cmd: LudoHostCommand)
   setMode / setAiDifficulty / setAutoAi / setInteractiveColors
+  setTurnTimer / pauseTurnTimer / resumeTurnTimer / resetTurnTimer / getTurnTimer
+  setSeatPresence / setSeats / getSeats / allHumansPresent
+  destroyRoom(reason?, notifyHost?) / destroy() / isDestroyed()
+  reset(opts?)
   setSoundEnabled(boolean)
-  reset(opts?) / destroy()
   sounds: LudoSounds
   roomId?: string
 }
 ```
 
 ## Headless (server-side rules)
-
-Run the same engine on Node to validate actions:
 
 ```ts
 import { createGame, listLegalMoves } from '@ludorush/sdk'
@@ -171,113 +252,71 @@ broadcast({ type: 'sync', state: g.getState() })
 
 ## Turn timer (dice box border)
 
-Optional countdown drawn as a **rounded rectangle** matching the dice dock outer shape (not a circle). Starts bright blue (`#0785FF`), turns red near the end.
-
-By default the timer is **visible for every seat’s turn** (you + opponents / AI). Miss actions (`skip` / `auto`) only apply to **interactive** seats so bots are not forfeited mid-turn.
+Rounded-rect border matching the dice dock. Bright blue → red at the end. Visible for **all** seats by default; skip/auto only for interactive seats.
 
 ```ts
 mountLudoRoom('#board', room, {
   turnTimer: {
     enabled: true,
     durationMs: 15_000,
-    appliesTo: 'all',         // default — show for opponents too
-                              // 'interactive' | 'human' | ColorId[]
+    appliesTo: 'all',
     showRing: true,
-    onTimeout: 'skip',        // 'skip' | 'auto' | 'none' (your seats only)
-    pauseWhileBusy: true,     // freeze during dice/move anim
+    onTimeout: 'skip',
+    pauseWhileBusy: true,
   },
-  onTurnTimeout: (ctx) => {
-    // fires for any seat that hits 0 — including opponents
-    // return 'auto' | 'skip' | 'none' to override (interactive seats)
-  },
-  onTurnTick: ({ remainingMs, ratio }) => {
-    // optional custom HUD
-  },
+  onTurnTimeout: (ctx) => { /* any seat */ },
+  onTurnTick: ({ remainingMs, ratio }) => {},
 })
 
-// runtime control
-ui.setTurnTimer({ enabled: true, durationMs: 20_000, appliesTo: 'all' })
+ui.setTurnTimer({ enabled: true, durationMs: 20_000 })
 ui.pauseTurnTimer()
 ui.resumeTurnTimer()
 ui.resetTurnTimer()
-ui.getTurnTimer() // { remainingMs, running, paused, ratio, color, … }
-ui.forfeitTurn()  // same as skip
-ui.dispatch({ type: 'config', turnTimer: { enabled: false } })
+ui.getTurnTimer()
+ui.forfeitTurn()
 ```
 
 | Option | Meaning |
 |--------|---------|
-| `appliesTo: 'all'` | Show blue box timer on every turn (default) |
-| `appliesTo: 'interactive'` | Only when it’s your seat |
-| `onTimeout: 'skip'` | Forfeit your seat → next player (`timeout` event) |
-| `onTimeout: 'auto'` | Auto-roll / auto-pick move for your seat |
-| `onTimeout: 'none'` | Callback only (typical for `controlled` rooms) |
-
-Default: timer **off**. When enabled without `onTimeout`, offline → `skip`, `controlled` → `none`.
+| `appliesTo: 'all'` | Show timer every turn (default) |
+| `appliesTo: 'interactive'` | Only your seats |
+| `onTimeout: 'skip' \| 'auto' \| 'none'` | Miss behaviour for **your** seats |
 
 ## Seat presence / join queue
 
-Matchmaking and the join queue live on **your host**. The SDK tracks per-seat status so the UI and timer know who has actually joined.
+Matchmaking lives on **your host**. Push seat status into the SDK.
 
 | `presence` | Meaning |
 |------------|---------|
 | `empty` | Open lobby slot |
 | `joining` | Reserved / connecting |
 | `joined` | In room |
-| `ready` | Ready / playing (AI default) |
-| `disconnected` | Dropped mid-game |
+| `ready` | Ready / playing |
+| `disconnected` | Dropped |
 
 ```ts
-const room: LudoRoomConfig = {
-  roomId: 'room_abc',
-  mode: 'rush',
-  seats: [
-    { id: 'u1', name: 'Asha', kind: 'human', color: 0, presence: 'ready' },
-    { id: 'open', name: 'Open', kind: 'human', color: 1, presence: 'empty' },
-    { id: 'bot', name: 'Bot', kind: 'ai', color: 2, presence: 'ready' },
-  ],
-  interactiveColors: [0],
-  controlled: true,
-  // When current seat is empty / disconnected:
-  absentSeat: { action: 'skip', delayMs: 400 }, // or 'auto' | 'none'
-}
-
-const ui = mountLudoRoom('#board', room, {
-  onPresence: (color, presence, state) => {
-    // analytics / lobby UI
-  },
-})
-
-// host → clients
 ui.setSeatPresence(1, 'joining', { name: 'Dev', id: 'u2' })
 ui.setSeatPresence(1, 'ready')
 ui.dispatch({ type: 'presence', color: 1, presence: 'disconnected' })
 ui.dispatch({ type: 'seats', seats: nextLobbySeats })
-
-ui.allHumansPresent() // true when every human is joined/ready
-ui.getSeats()
+ui.allHumansPresent()
 ```
 
-- Timer does **not** run for `empty` / `joining` / `disconnected` seats.
-- `absentSeat.action`: `skip` forfeits, `auto` AI-fills, `none` waits for host (default in `controlled` rooms).
-- Animation events are still serialized on an internal promise queue so dice/moves never overlap.
+`absentSeat: { action: 'skip' | 'auto' | 'none', delayMs }` — when the current seat is empty/disconnected.
 
 ## UI notes
 
-- Board is compact by default (`compact: true`)
-- No move history / mode pickers inside the board — host UI is yours
-- Legal pawns glow; seats show presence badges when not ready
-- Turn timer is a blue rounded-rect border around the dice dock (visible for all turns when `appliesTo: 'all'`)
+- Compact board by default
+- Legal pawns glow; seats show presence badges
+- Turn timer = blue rounded-rect around the dice dock
+- Dice/move animations are serialized (internal promise queue)
 
 ## Scripts
 
 ```bash
 npm run dev          # playground :5195
 npm run typecheck
-npm run smoke
-npm run test:bots
-npm run test:e2e
-npm test             # all of the above
+npm test
 npm run build:sdk
 ```
 

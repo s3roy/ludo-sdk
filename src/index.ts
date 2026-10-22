@@ -63,6 +63,13 @@ export {
   type TurnTimeoutContext,
   type AbsentSeatConfig,
   type AbsentSeatAction,
+  type RoomDestroyReason,
+  type TurnChangeContext,
+  type WinContext,
+  type DestroyContext,
+  type LegalMovesContext,
+  type PresenceChangeContext,
+  type LudoLifecycleCallbacks,
 } from './sdk/mount';
 
 export type {

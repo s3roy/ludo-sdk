@@ -123,6 +123,19 @@ function start(cfg: GameConfig) {
     sound: true,
     aiDelayMs: 600,
     turnTimer: timerConfig(cfg.timer),
+    onTurn: ({ color, isMine, turnId }) => {
+      console.info('[turn]', { color, isMine, turnId });
+    },
+    onMyTurn: () => {
+      console.info('[my-turn]');
+    },
+    onWin: ({ winner, ranking }) => {
+      console.info('[win]', winner, ranking);
+      toast(`${winner} wins`);
+    },
+    onDestroy: ({ reason }) => {
+      console.info('[destroy]', reason);
+    },
     onTurnTimeout: (ctx) => {
       console.info('[timer] miss', ctx.color, ctx.phase, ctx.turnId);
     },
