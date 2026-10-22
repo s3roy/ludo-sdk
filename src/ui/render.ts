@@ -1,12 +1,4 @@
-import {
-  COLOR_DARK,
-  COLOR_HEX,
-  COLOR_HIGHLIGHT,
-  COLOR_NAMES,
-  HOME_PATH_HEX,
-  SAFE_TRACK,
-  START_INDEX,
-} from '../core/constants';
+import { COLOR_NAMES, SAFE_TRACK, START_INDEX } from '../core/constants';
 import type { ColorId, GameState, LegalMove, Token } from '../core/types';
 import {
   BOARD_PX,
@@ -16,28 +8,25 @@ import {
   trackToCell,
   yardSlots,
 } from './boardLayout';
+import { getTheme, type ThemePalette } from './themes';
 
-const YARD = COLOR_HEX;
-const TILE_EMPTY = '#F1F5F9';
-const TILE_BORDER = '#CBD5E1';
-const TILE_SAFE = '#FFF1B8';
-const TILE_STAR = '#F5A900';
-const SPINNER_RING = '#071329';
-const SPINNER_CENTER = '#F8FAFC';
-
-/** Static board artwork — Ludo Rush design-system HEX. */
-export function renderBoardBase(): string {
+/** Static board artwork — theme-aware. */
+export function renderBoardBase(themeInput?: ThemePalette | string): string {
+  const theme = typeof themeInput === 'string' || !themeInput
+    ? getTheme(themeInput)
+    : themeInput;
+  const YARD = theme.players;
   const parts: string[] = [];
 
   parts.push(`
     <defs>
       <linearGradient id="ludoBoardBg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#F8FAFC"/>
-        <stop offset="100%" stop-color="${TILE_EMPTY}"/>
+        <stop offset="0%" stop-color="${theme.boardBg0}"/>
+        <stop offset="100%" stop-color="${theme.boardBg1}"/>
       </linearGradient>
       <linearGradient id="ludoTile" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#FFFFFF"/>
-        <stop offset="100%" stop-color="${TILE_EMPTY}"/>
+        <stop offset="0%" stop-color="${lighten(theme.tileEmpty, 0.35)}"/>
+        <stop offset="100%" stop-color="${theme.tileEmpty}"/>
       </linearGradient>
       <filter id="ludoYardGlow" x="-14%" y="-14%" width="128%" height="128%">
         <feDropShadow dx="0" dy="3" stdDeviation="2.8" flood-opacity="0.32"/>
@@ -49,18 +38,18 @@ export function renderBoardBase(): string {
         .map(
           (c) => `
       <linearGradient id="ludoYard${c}" x1="0.15" y1="0" x2="0.85" y2="1">
-        <stop offset="0%" stop-color="${COLOR_HIGHLIGHT[c]}"/>
+        <stop offset="0%" stop-color="${theme.highlights[c]}"/>
         <stop offset="42%" stop-color="${YARD[c]}"/>
-        <stop offset="100%" stop-color="${COLOR_DARK[c]}"/>
+        <stop offset="100%" stop-color="${theme.darks[c]}"/>
       </linearGradient>
       <linearGradient id="ludoHome${c}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${lighten(HOME_PATH_HEX[c], 0.12)}"/>
-        <stop offset="100%" stop-color="${HOME_PATH_HEX[c]}"/>
+        <stop offset="0%" stop-color="${lighten(theme.homePath[c], 0.12)}"/>
+        <stop offset="100%" stop-color="${theme.homePath[c]}"/>
       </linearGradient>
       <radialGradient id="ludoPawn${c}" cx="32%" cy="28%" r="70%">
-        <stop offset="0%" stop-color="${COLOR_HIGHLIGHT[c]}"/>
+        <stop offset="0%" stop-color="${theme.highlights[c]}"/>
         <stop offset="48%" stop-color="${YARD[c]}"/>
-        <stop offset="100%" stop-color="${COLOR_DARK[c]}"/>
+        <stop offset="100%" stop-color="${theme.darks[c]}"/>
       </radialGradient>`,
         )
         .join('')}
@@ -100,7 +89,7 @@ export function renderBoardBase(): string {
     const safe = SAFE_TRACK.has(i);
     const start = (Object.values(START_INDEX) as number[]).includes(i);
     let fill = 'url(#ludoTile)';
-    let stroke = TILE_BORDER;
+    let stroke = theme.tileBorder;
     if (start) {
       const color = Number(
         Object.entries(START_INDEX).find(([, v]) => v === i)?.[0] ?? 0,
@@ -108,13 +97,13 @@ export function renderBoardBase(): string {
       fill = `url(#ludoYard${color})`;
       stroke = 'rgba(255,255,255,0.7)';
     } else if (safe) {
-      fill = TILE_SAFE;
+      fill = theme.tileSafe;
     }
     parts.push(
       `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="0.9" filter="url(#ludoTileLift)"/>`,
     );
     if (safe) {
-      const starFill = start ? '#FFFFFF' : TILE_STAR;
+      const starFill = start ? '#FFFFFF' : theme.tileStar;
       parts.push(
         `<text x="${x * CELL + CELL / 2}" y="${y * CELL + CELL / 2 + 4}" text-anchor="middle" font-size="12" font-weight="900" fill="${starFill}" stroke="rgba(0,0,0,0.12)" stroke-width="0.35">★</text>`,
       );
@@ -136,7 +125,7 @@ export function renderBoardBase(): string {
   const cx = 7.5 * CELL;
   const cy = 7.5 * CELL;
   const s = 1.58 * CELL;
-  parts.push(`<circle cx="${cx}" cy="${cy}" r="${s + 4}" fill="${SPINNER_RING}"/>`);
+  parts.push(`<circle cx="${cx}" cy="${cy}" r="${s + 4}" fill="${theme.spinnerRing}"/>`);
   parts.push(
     `<polygon points="${cx},${cy} ${cx},${cy - s} ${cx + s},${cy}" fill="${YARD[2]}"/>`,
   );
@@ -152,7 +141,7 @@ export function renderBoardBase(): string {
   parts.push(
     `<circle cx="${cx}" cy="${cy}" r="${s}" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>`,
   );
-  parts.push(`<circle cx="${cx}" cy="${cy}" r="5.2" fill="${SPINNER_CENTER}"/>`);
+  parts.push(`<circle cx="${cx}" cy="${cy}" r="5.2" fill="${theme.spinnerCenter}"/>`);
 
   return `<svg class="ludo-sdk__board" viewBox="0 0 ${BOARD_PX} ${BOARD_PX}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ludo board">
     <g class="ludo-sdk__board-base">${parts.join('')}</g>
@@ -187,11 +176,19 @@ function hexToRgb(hex: string) {
   };
 }
 
-/** Glossy plastic guti matching the mock. */
-export function tokenMarkup(token: Token, playable: boolean): string {
+/** Glossy plastic guti — theme stroke/fill. */
+export function tokenMarkup(
+  token: Token,
+  playable: boolean,
+  themeInput?: ThemePalette | string,
+): string {
+  const theme = typeof themeInput === 'string' || !themeInput
+    ? getTheme(themeInput)
+    : themeInput;
   const { x, y } = tokenPixel(token.color, token.slot, token.state);
   const fill = `url(#ludoPawn${token.color})`;
-  const solid = COLOR_HEX[token.color];
+  const solid = theme.players[token.color];
+  const stroke = theme.pawnStroke;
   const cls = [
     'ludo-sdk__token',
     'ludo-sdk__pawn',
@@ -204,8 +201,8 @@ export function tokenMarkup(token: Token, playable: boolean): string {
   return `<g class="${cls}" data-token-id="${token.id}" style="transform: translate(${x}px, ${y + 2}px)">
     <ellipse class="ludo-sdk__pawn-shadow" cx="0" cy="9.5" rx="8.5" ry="2.4" fill="rgba(0,0,0,0.35)"/>
     <circle class="ludo-sdk__token-ring" cx="0" cy="-4" r="14" fill="none" stroke="#fff" stroke-width="2.2" opacity="0"/>
-    <ellipse class="ludo-sdk__pawn-base ludo-sdk__token-body" cx="0" cy="7.4" rx="8.6" ry="3" fill="${fill}" stroke="#141018" stroke-width="1.2"/>
-    <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="${fill}" stroke="#141018" stroke-width="1.2" stroke-linejoin="round"
+    <ellipse class="ludo-sdk__pawn-base ludo-sdk__token-body" cx="0" cy="7.4" rx="8.6" ry="3" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
+    <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="${fill}" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round"
       d="M -5.4 6.6
          C -5.8 3.2 -4.4 0.1 -2.9 -2.4
          L -2.5 -3.4
@@ -216,11 +213,11 @@ export function tokenMarkup(token: Token, playable: boolean): string {
          L 2.9 -2.4
          C 4.4 0.1 5.8 3.2 5.4 6.6
          Z"/>
-    <ellipse class="ludo-sdk__pawn-collar" cx="0" cy="-2.7" rx="4.4" ry="1.7" fill="${solid}" stroke="#141018" stroke-width="0.95"/>
-    <circle class="ludo-sdk__pawn-head ludo-sdk__token-body" cx="0" cy="-7.8" r="3.8" fill="${fill}" stroke="#141018" stroke-width="1.2"/>
+    <ellipse class="ludo-sdk__pawn-collar" cx="0" cy="-2.7" rx="4.4" ry="1.7" fill="${solid}" stroke="${stroke}" stroke-width="0.95"/>
+    <circle class="ludo-sdk__pawn-head ludo-sdk__token-body" cx="0" cy="-7.8" r="3.8" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
     <circle cx="-1.2" cy="-8.9" r="1.35" fill="#fff" opacity="0.62"/>
     <ellipse cx="1.2" cy="-6.6" rx="1.1" ry="0.55" fill="#fff" opacity="0.18"/>
-    <text class="ludo-sdk__token-label" x="0" y="5.4" text-anchor="middle" font-size="7" font-weight="900" fill="#141018">${token.slot + 1}</text>
+    <text class="ludo-sdk__token-label" x="0" y="5.4" text-anchor="middle" font-size="7" font-weight="900" fill="${stroke}">${token.slot + 1}</text>
   </g>`;
 }
 
@@ -236,7 +233,11 @@ export function syncTokens(
   layer: SVGGElement,
   state: GameState,
   legal: LegalMove[],
+  themeInput?: ThemePalette | string,
 ): { moved: string[]; captured: string[] } {
+  const theme = typeof themeInput === 'string' || !themeInput
+    ? getTheme(themeInput)
+    : themeInput;
   const playable = new Set(legal.map((m) => m.tokenId));
   const moved: string[] = [];
   const existing = new Map<string, SVGGElement>();
@@ -269,7 +270,7 @@ export function syncTokens(
     if (!node) {
       layer.insertAdjacentHTML(
         'beforeend',
-        tokenMarkup(token, playable.has(token.id)),
+        tokenMarkup(token, playable.has(token.id), theme),
       );
       node = layer.querySelector(`[data-token-id="${token.id}"]`) as SVGGElement;
       node.style.transition = 'none';
@@ -290,7 +291,7 @@ export function syncTokens(
         token.state.kind === 'finished',
       );
       const fill = `url(#ludoPawn${token.color})`;
-      const solid = COLOR_HEX[token.color];
+      const solid = theme.players[token.color];
       node
         .querySelectorAll('.ludo-sdk__token-body')
         .forEach((el) => el.setAttribute('fill', fill));

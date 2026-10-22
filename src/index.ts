@@ -103,3 +103,33 @@ export {
 } from './sdk/presence';
 
 export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';
+
+/** Server lobby — authoritative rooms. */
+export {
+  createLudoLobby,
+  type LudoLobby,
+  type LudoLobbyOptions,
+  type CreateLobbyRoomInput,
+  type LobbyPlayer,
+  type LobbyRoomStatus,
+  type JoinOk,
+  type JoinErr,
+} from './server/lobby';
+
+/** Hosted client — UI + intents only. */
+export {
+  mountHostedLudo,
+  type HostedMountOptions,
+  type HostedHandle,
+  type HostedTransport,
+} from './client/hosted';
+
+/** Visual themes (client cosmetics). */
+export {
+  LUDO_THEMES,
+  THEME_IDS,
+  getTheme,
+  applyThemeToElement,
+  type LudoThemeId,
+  type ThemePalette,
+} from './ui/themes';

@@ -23,6 +23,12 @@ import {
   statusText,
   syncTokens,
 } from '../ui/render';
+import {
+  applyThemeToElement,
+  getTheme,
+  type LudoThemeId,
+  type ThemePalette,
+} from '../ui/themes';
 import { animateLegalMove } from '../ui/tokenAnim';
 import {
   offlineRoom,
@@ -113,6 +119,8 @@ export type LudoMountOptions = LudoLifecycleCallbacks & {
    * Set `action: 'none'` if the host will decide.
    */
   absentSeat?: AbsentSeatConfig;
+  /** Visual theme (client-only cosmetics). */
+  theme?: LudoThemeId | string;
   onEvent?: (event: GameEvent, state: GameState) => void;
   /** @deprecated Prefer `onPresenceChange`. */
   onPresence?: (
@@ -139,6 +147,10 @@ export type LudoMountOptions = LudoLifecycleCallbacks & {
   /** Fires while the clock runs (for custom UI). */
   onTurnTick?: (ctx: TurnTimerTickContext) => void;
   onReady?: (handle: LudoHandle) => void;
+  /** Fired when user taps Play again on the win overlay (offline rematch). */
+  onRematch?: () => void;
+  /** Hide built-in win overlay (default false). */
+  hideWinOverlay?: boolean;
 };
 
 export type LudoHandle = {
@@ -164,6 +176,8 @@ export type LudoHandle = {
   setAiDifficulty: (d: AiDifficulty) => void;
   setAutoAi: (on: boolean) => void;
   setInteractiveColors: (colors: ColorId[]) => void;
+  setTheme: (theme: LudoThemeId | string) => void;
+  getTheme: () => ThemePalette;
   /** Merge / replace timer settings (`false` disables). */
   setTurnTimer: (cfg: TurnTimerConfig | false) => void;
   pauseTurnTimer: () => void;
@@ -268,6 +282,7 @@ export function mountLudo(
   let timerColor: ColorId | null = null;
   let timerDuration = timerCfg.durationMs;
   let timerFiring = false;
+  let theme = getTheme(opts.theme);
 
   const soundOpts: SoundOptions =
     opts.sound === false
@@ -280,6 +295,7 @@ export function mountLudo(
   root.classList.add('ludo-sdk');
   if (opts.compact !== false) root.classList.add('ludo-sdk--compact');
   root.innerHTML = shellHtml(opts.mode ?? 'rush', opts.showPlayers !== false);
+  applyThemeToElement(root, theme);
 
   const boardWrap = root.querySelector<HTMLElement>('[data-ludo-board]')!;
   const statusEl = root.querySelector<HTMLElement>('[data-ludo-status]')!;
@@ -289,6 +305,52 @@ export function mountLudo(
   const rollBtn = root.querySelector<HTMLButtonElement>('[data-ludo-roll]')!;
   const soundBtn = root.querySelector<HTMLButtonElement>('[data-ludo-sound]')!;
   const modeEl = root.querySelector<HTMLElement>('[data-ludo-mode]')!;
+  const winEl = root.querySelector<HTMLElement>('[data-ludo-win]')!;
+  const winTitle = root.querySelector<HTMLElement>('[data-ludo-win-title]')!;
+  const winSub = root.querySelector<HTMLElement>('[data-ludo-win-sub]')!;
+  const winRanking = root.querySelector<HTMLOListElement>('[data-ludo-win-ranking]')!;
+  const rematchBtn = root.querySelector<HTMLButtonElement>('[data-ludo-rematch]')!;
+
+  function hideWinOverlay() {
+    winEl.hidden = true;
+    winEl.classList.remove('ludo-sdk__win--show');
+  }
+
+  function showWinOverlay(winner: ColorId, ranking: ColorId[], state: GameState) {
+    if (opts.hideWinOverlay) return;
+    const name = COLOR_NAMES[winner];
+    const titleName = name[0]!.toUpperCase() + name.slice(1);
+    winTitle.textContent = `${titleName} wins!`;
+    const mine = canControl(winner);
+    winSub.textContent = mine ? 'Victory' : 'Match over';
+    winRanking.innerHTML = ranking
+      .map((c, i) => {
+        const n = COLOR_NAMES[c];
+        const label = n[0]!.toUpperCase() + n.slice(1);
+        const you = canControl(c) ? ' · you' : '';
+        return `<li class="ludo-sdk__win-rank ludo-sdk__win-rank--c${c}">
+          <span class="ludo-sdk__win-place">#${i + 1}</span>
+          <span class="ludo-sdk__win-name">${label}${you}</span>
+        </li>`;
+      })
+      .join('');
+    // Hosted rooms: rematch is a host concern — still show button for offline
+    rematchBtn.hidden = !!opts.controlled && !opts.onRematch;
+    winEl.hidden = false;
+    requestAnimationFrame(() => winEl.classList.add('ludo-sdk__win--show'));
+    void state;
+  }
+
+  rematchBtn.addEventListener('click', () => {
+    hideWinOverlay();
+    if (opts.onRematch) {
+      opts.onRematch();
+      return;
+    }
+    if (!opts.controlled) {
+      reset(opts);
+    }
+  });
 
   function syncSoundBtn() {
     soundBtn.textContent = sounds.isEnabled() ? '🔊' : '🔇';
@@ -305,7 +367,8 @@ export function mountLudo(
   function ensureBoard() {
     if (boardReady) return;
     boardWrap.innerHTML =
-      renderBoardBase() + `<div class="ludo-sdk__toast" data-ludo-toast></div>`;
+      renderBoardBase(theme) +
+      `<div class="ludo-sdk__toast" data-ludo-toast></div>`;
     boardReady = true;
   }
 
@@ -710,6 +773,7 @@ export function mountLudo(
     if (event?.type === 'win') {
       showToast(`${COLOR_NAMES[event.color]} wins`);
       sounds.play('win');
+      showWinOverlay(event.color, event.ranking, state);
       const winCtx: WinContext = {
         winner: event.color,
         ranking: event.ranking,
@@ -731,7 +795,7 @@ export function mountLudo(
       syncTimerPauseForBusy();
       paintChrome(state);
       // Place tokens at post-move state, then walk the mover cell-by-cell
-      syncTokens(tokensLayer(), state, []);
+      syncTokens(tokensLayer(), state, [], theme);
       const tok = state.tokens.find((t) => t.id === event.tokenId);
       const slot = tok?.slot ?? 0;
       await animateLegalMove(
@@ -783,7 +847,7 @@ export function mountLudo(
 
   function paint(state: GameState, event: GameEvent | null) {
     const legal = game.legalMoves();
-    syncTokens(tokensLayer(), state, legal);
+    syncTokens(tokensLayer(), state, legal, theme);
     paintChrome(state);
 
     const mine =
@@ -870,6 +934,8 @@ export function mountLudo(
     };
     const result = await resolveAction(action, s);
     if (result === 'defer') return;
+    // Hosted / controlled: never apply local RNG — host must dispatch dice/sync
+    if (opts.controlled) return;
     if (result === 'allow') {
       game.roll();
       return;
@@ -892,6 +958,7 @@ export function mountLudo(
     };
     const result = await resolveAction(action, s);
     if (result === 'defer') return;
+    if (opts.controlled) return;
     if (result === 'allow' || (typeof result === 'object' && 'dice' in result)) {
       game.move(tokenId);
     }
@@ -940,7 +1007,10 @@ export function mountLudo(
     if (aiTimer) clearTimeout(aiTimer);
     if (absentTimer) clearTimeout(absentTimer);
     stopTurnTimer(true);
+    hideWinOverlay();
     if (next) opts = { ...opts, ...next };
+    theme = getTheme(opts.theme);
+    applyThemeToElement(root, theme);
     timerCfg = normalizeTurnTimer(opts.turnTimer, !!opts.controlled);
     absentCfg = {
       action: opts.absentSeat?.action ?? (opts.controlled ? 'none' : 'skip'),
@@ -953,7 +1023,9 @@ export function mountLudo(
           .map((p) => p.color),
     );
     busy = false;
+    previousTurnColor = null;
     game = makeGame(opts);
+    boardReady = false;
     bind();
   }
 
@@ -1051,6 +1123,15 @@ export function mountLudo(
       paint(game.getState(), null);
       scheduleTurnTimer(game.getState());
     },
+    setTheme: (id) => {
+      theme = getTheme(id);
+      opts.theme = id;
+      applyThemeToElement(root, theme);
+      boardReady = false;
+      ensureBoard();
+      paint(game.getState(), null);
+    },
+    getTheme: () => theme,
     setTurnTimer: (cfg) => {
       opts.turnTimer = cfg;
       const was = timerCfg.enabled;
@@ -1200,6 +1281,17 @@ function shellHtml(mode: GameMode, showPlayers: boolean): string {
       <button type="button" class="ludo-sdk__btn ludo-sdk__btn--icon" data-ludo-sound aria-label="Sound">🔊</button>
     </div>
     ${showPlayers ? '<div class="ludo-sdk__players" data-ludo-players></div>' : ''}
+    <div class="ludo-sdk__win" data-ludo-win hidden>
+      <div class="ludo-sdk__win-card" role="dialog" aria-labelledby="ludo-win-title">
+        <div class="ludo-sdk__win-emoji" aria-hidden="true">🏆</div>
+        <h3 class="ludo-sdk__win-title" id="ludo-win-title" data-ludo-win-title>Wins!</h3>
+        <p class="ludo-sdk__win-sub" data-ludo-win-sub></p>
+        <ol class="ludo-sdk__win-ranking" data-ludo-win-ranking></ol>
+        <button type="button" class="ludo-sdk__btn ludo-sdk__win-rematch" data-ludo-rematch>
+          Play again
+        </button>
+      </div>
+    </div>
   `;
 }
 

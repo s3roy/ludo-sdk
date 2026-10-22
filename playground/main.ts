@@ -1,9 +1,11 @@
 import {
   mountLudoRoom,
   offlineRoom,
+  THEME_IDS,
   type AiDifficulty,
   type GameMode,
   type LudoHandle,
+  type LudoThemeId,
   type TurnTimerAutoAction,
   type TurnTimerConfig,
 } from '@ludorush/sdk';
@@ -12,6 +14,7 @@ const mountEl = document.querySelector<HTMLElement>('#mount')!;
 const modeSel = document.querySelector<HTMLSelectElement>('#mode')!;
 const playersSel = document.querySelector<HTMLSelectElement>('#players')!;
 const diffSel = document.querySelector<HTMLSelectElement>('#diff')!;
+const themeSel = document.querySelector<HTMLSelectElement>('#theme')!;
 const timerSel = document.querySelector<HTMLSelectElement>('#timer')!;
 const roomIdEl = document.querySelector<HTMLElement>('#roomId')!;
 const newGameBtn = document.querySelector<HTMLButtonElement>('#newGame')!;
@@ -26,6 +29,7 @@ type GameConfig = {
   mode: GameMode;
   players: number;
   aiDifficulty: AiDifficulty;
+  theme: LudoThemeId;
   roomId: string;
   timer: string;
 };
@@ -54,11 +58,16 @@ function timerConfig(key: string): TurnTimerConfig | false {
   };
 }
 
+function isTheme(v: string | null): v is LudoThemeId {
+  return !!v && (THEME_IDS as string[]).includes(v);
+}
+
 function readConfigFromUrl(): Partial<GameConfig> {
   const q = new URLSearchParams(location.search);
   const mode = q.get('mode');
   const players = Number(q.get('players'));
   const ai = q.get('ai');
+  const theme = q.get('theme');
   const roomId = q.get('room');
   const timer = q.get('timer');
   const out: Partial<GameConfig> = {};
@@ -67,6 +76,7 @@ function readConfigFromUrl(): Partial<GameConfig> {
   if (ai === 'easy' || ai === 'normal' || ai === 'hard' || ai === 'extreme') {
     out.aiDifficulty = ai;
   }
+  if (isTheme(theme)) out.theme = theme;
   if (roomId && /^[A-Z0-9]{4,12}$/i.test(roomId)) out.roomId = roomId.toUpperCase();
   if (timer && /^(off|\d{1,2}(-auto)?)$/.test(timer)) out.timer = timer;
   return out;
@@ -76,15 +86,18 @@ function applyForm(cfg: Partial<GameConfig>) {
   if (cfg.mode) modeSel.value = cfg.mode;
   if (cfg.players) playersSel.value = String(cfg.players);
   if (cfg.aiDifficulty) diffSel.value = cfg.aiDifficulty;
+  if (cfg.theme) themeSel.value = cfg.theme;
   if (cfg.timer) timerSel.value = cfg.timer;
 }
 
 function currentConfig(forceNewId = false): GameConfig {
   const fromUrl = readConfigFromUrl();
+  const themeVal = themeSel.value;
   return {
     mode: modeSel.value as GameMode,
     players: Number(playersSel.value),
     aiDifficulty: diffSel.value as AiDifficulty,
+    theme: isTheme(themeVal) ? themeVal : 'rush',
     roomId: forceNewId ? randomRoomId() : fromUrl.roomId ?? randomRoomId(),
     timer: timerSel.value,
   };
@@ -95,6 +108,7 @@ function writeUrl(cfg: GameConfig, replace = true) {
   url.searchParams.set('mode', cfg.mode);
   url.searchParams.set('players', String(cfg.players));
   url.searchParams.set('ai', cfg.aiDifficulty);
+  url.searchParams.set('theme', cfg.theme);
   url.searchParams.set('room', cfg.roomId);
   url.searchParams.set('timer', cfg.timer);
   history[replace ? 'replaceState' : 'pushState'](null, '', url);
@@ -123,8 +137,12 @@ function start(cfg: GameConfig) {
   handle = mountLudoRoom(mountEl, room, {
     compact: true,
     sound: true,
+    theme: cfg.theme,
     aiDelayMs: 600,
     turnTimer: timerConfig(cfg.timer),
+    onRematch: () => {
+      newGame();
+    },
     onTurn: ({ color, isMine, turnId }) => {
       console.info('[turn]', { color, isMine, turnId });
     },
@@ -133,7 +151,6 @@ function start(cfg: GameConfig) {
     },
     onWin: ({ winner, ranking }) => {
       console.info('[win]', winner, ranking);
-      toast(`${winner} wins`);
     },
     onDestroy: ({ reason }) => {
       console.info('[destroy]', reason);
@@ -193,6 +210,16 @@ timerSel.addEventListener('change', () => {
   handle.setTurnTimer(cfg);
   writeUrl(currentConfig(false));
   toast(cfg ? `Timer ${cfg.durationMs / 1000}s` : 'Timer off');
+});
+themeSel.addEventListener('change', () => {
+  const cfg = currentConfig(false);
+  if (handle) {
+    handle.setTheme(cfg.theme);
+    writeUrl(cfg);
+    toast(`Theme · ${cfg.theme}`);
+  } else {
+    start(cfg);
+  }
 });
 
 start(currentConfig(false));
