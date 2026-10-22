@@ -44,7 +44,7 @@ import { mountLudoRoom, offlineRoom } from '@ludorush/sdk'
 const room = offlineRoom({
   mode: 'rush',
   players: 4,
-  aiDifficulty: 'hard',
+  aiDifficulty: 'extreme', // easy | normal | hard | extreme
   humanColor: 0,
 })
 

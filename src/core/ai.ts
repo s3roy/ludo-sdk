@@ -2,12 +2,15 @@ import { isSafeSquare, TRACK_LEN, tokensToWin } from './constants';
 import { countFinished } from './moves';
 import { progressScore } from './path';
 import type { ColorId, GameState, LegalMove, Token } from './types';
+import { chooseExtremeMove } from './ai-extreme';
 
-export type AiDifficulty = 'easy' | 'normal' | 'hard';
+export type AiDifficulty = 'easy' | 'normal' | 'hard' | 'extreme';
 
 /**
- * Hard AI uses hard priority gates (never skip a capture to open, etc.).
- * Soft scoring only ranks within the same tier.
+ * Pick a legal move for an AI seat.
+ * - easy: random
+ * - normal / hard: tiered greedy heuristics
+ * - extreme: expectiminimax (dice + replies) — slowest, strongest
  */
 export function chooseAiMove(
   moves: LegalMove[],
@@ -19,6 +22,10 @@ export function chooseAiMove(
 
   if (difficulty === 'easy') {
     return moves[Math.floor(rng() * moves.length)];
+  }
+
+  if (difficulty === 'extreme') {
+    return chooseExtremeMove(moves, state, rng);
   }
 
   const pool = hardPool(moves, state, difficulty);
@@ -66,9 +73,9 @@ function hardPool(
   );
   if (intoHome.length) return intoHome;
 
-  // On hard: if we already have pieces in play, don't open just to open
+  // On hard/extreme seed: if we already have pieces in play, don't open just to open
   // unless every on-board move is suicidal.
-  if (difficulty === 'hard') {
+  if (difficulty === 'hard' || difficulty === 'extreme') {
     const onBoardMoves = moves.filter((m) => !m.entersBoard);
     if (onBoardMoves.length) {
       const safeish = onBoardMoves.filter((m) => !isSuicidal(m, state));

@@ -22,7 +22,7 @@ mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }))
 - **Classic / Rush / Blitz** — same board, different open & win conditions
 - **Headless engine** — validate rolls/moves on your server with the same code
 - **Embeddable UI** — navy glass chrome, bright board, golden roll button ([DESIGN.md](./DESIGN.md))
-- **AI** — easy / normal / hard (finish → capture → escape tiers)
+- **AI** — easy / normal / hard / **extreme** (expectiminimax deep search)
 - **2–4 seats** — 2-player uses diagonal colours (Red↔Yellow or Green↔Blue)
 - **Host rooms** — `controlled: true` + `onAction` → your backend owns dice & sync
 - **Turn timer** — blue rounded-rect border on the dice dock (visible for all seats); skip/auto on miss
@@ -95,7 +95,7 @@ GITHUB_PAGES=1 npm run build:web   # → dist-playground/
 npm run preview                    # local check of that build
 ```
 
-Query params (optional): `?mode=rush&players=4&ai=hard&room=ABC123`
+Query params (optional): `?mode=rush&players=4&ai=extreme&room=ABC123`
 
 ## Develop
 

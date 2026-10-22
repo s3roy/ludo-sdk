@@ -64,7 +64,9 @@ function readConfigFromUrl(): Partial<GameConfig> {
   const out: Partial<GameConfig> = {};
   if (mode === 'classic' || mode === 'rush' || mode === 'blitz') out.mode = mode;
   if (players === 2 || players === 3 || players === 4) out.players = players;
-  if (ai === 'easy' || ai === 'normal' || ai === 'hard') out.aiDifficulty = ai;
+  if (ai === 'easy' || ai === 'normal' || ai === 'hard' || ai === 'extreme') {
+    out.aiDifficulty = ai;
+  }
   if (roomId && /^[A-Z0-9]{4,12}$/i.test(roomId)) out.roomId = roomId.toUpperCase();
   if (timer && /^(off|\d{1,2}(-auto)?)$/.test(timer)) out.timer = timer;
   return out;
