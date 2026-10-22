@@ -103,13 +103,17 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     opts.broadcast(cmd, room.roomId);
   }
 
-  function sync(event: GameEvent | null = null) {
+  /**
+   * Push authoritative state. Omit `event` for silent catch-up (preferred after
+   * dice/play). Pass an event when clients should run lifecycle (e.g. forfeit → turn).
+   */
+  function sync(event?: GameEvent | null) {
     if (destroyed) return;
-    broadcast({
-      type: 'sync',
-      state: game.getState(),
-      event: event ?? game.getState().lastEvent,
-    });
+    if (arguments.length >= 1) {
+      broadcast({ type: 'sync', state: game.getState(), event: event ?? null });
+    } else {
+      broadcast({ type: 'sync', state: game.getState() });
+    }
   }
 
   function destroy(reason: RoomDestroyReason = 'host') {
@@ -138,7 +142,8 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
       name: patch?.name,
       id: patch?.id,
     });
-    sync({ type: 'presence', color, presence });
+    // Presence already broadcast — silent state align only
+    sync();
   }
 
   function setSeats(seats: PlayerConfig[]) {
@@ -149,7 +154,7 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     }));
     room.seats = next;
     const s = game.getState();
-    game.syncState({ ...s, players: next }, s.lastEvent);
+    game.syncState({ ...s, players: next });
     broadcast({ type: 'seats', seats: next });
     sync();
   }
@@ -159,7 +164,7 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     const v = game.applyDice(value);
     if (v == null) return null;
     broadcast({ type: 'dice', value: v });
-    sync(game.getState().lastEvent);
+    sync(); // silent — clients already applied dice
     return v;
   }
 
@@ -168,7 +173,7 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     const ok = game.move(tokenId);
     if (!ok) return false;
     broadcast({ type: 'play', tokenId });
-    sync(game.getState().lastEvent);
+    sync(); // silent — clients already applied play
     return true;
   }
 
@@ -201,6 +206,20 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
       return { ok: true };
     }
 
+    if (action.type === 'forfeit') {
+      if (state.phase === 'finished') {
+        return { ok: false, error: 'finished' };
+      }
+      if (state.currentColor !== action.color) {
+        return { ok: false, error: 'not_your_turn' };
+      }
+      const ok = game.forfeitTurn();
+      if (!ok) return { ok: false, error: 'forfeit_failed' };
+      // Clients need the turn advance — emit lastEvent (usually `turn`)
+      sync(game.getState().lastEvent);
+      return { ok: true };
+    }
+
     if (action.type === 'roll') {
       if (state.phase !== 'waiting_roll') {
         return { ok: false, error: 'not_waiting_roll' };
@@ -211,7 +230,7 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
       const v = game.roll();
       if (v == null) return { ok: false, error: 'roll_failed' };
       broadcast({ type: 'dice', value: v });
-      sync(game.getState().lastEvent);
+      sync();
       return { ok: true };
     }
 

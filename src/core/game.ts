@@ -142,10 +142,22 @@ export class LudoGame {
     return value;
   }
 
-  /** Replace full state from an authoritative backend snapshot. */
-  syncState(next: GameState, event: GameEvent | null = null): void {
+  /**
+   * Replace full state from an authoritative backend snapshot.
+   * - `syncState(next)` — silent catch-up (listeners get `null` event; no animation replay)
+   * - `syncState(next, event)` — emit that event (`null` clears lastEvent)
+   *
+   * Never auto-replays `next.lastEvent` — that caused double dice/move animations
+   * when hosts broadcast `{dice|play}` then `{sync}`.
+   */
+  syncState(next: GameState, event?: GameEvent | null): void {
     this.state = structuredClone(next);
-    this.emit(event ?? this.state.lastEvent);
+    if (arguments.length < 2) {
+      const snap = this.getState();
+      for (const fn of this.listeners) fn(snap, null);
+      return;
+    }
+    this.emit(event ?? null);
   }
 
   move(tokenIdStr: string): boolean {

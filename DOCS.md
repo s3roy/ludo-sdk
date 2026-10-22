@@ -9,7 +9,7 @@ Self-hosted Ludo: **your backend owns the room**; this SDK is the rules engine +
 └──────┬──────┘                              └──────────────┘
        │ WS / SSE: sync | dice | presence | destroy
        ▼
-┌─────────────┐   onAction(roll|move|leave|destroy)
+┌─────────────┐   onAction(roll|move|forfeit|leave|destroy)
 │  mountLudo  │ ───────────────────────────► │  Your API    │
 │  (client)   │ ◄─────────────────────────── │  validates   │
 └─────────────┘   applyDice / syncState / destroyRoom
@@ -240,6 +240,7 @@ ui.dispatch({ type: 'destroy', reason: 'host' })
 ```ts
 { type: 'roll', roomId, color }
 { type: 'move', roomId, color, tokenId }
+{ type: 'forfeit', roomId, color }   // turn-timer / absent miss (controlled)
 { type: 'presence', roomId, color, presence }
 { type: 'leave', roomId, color }
 { type: 'destroy', roomId, reason? }
@@ -250,18 +251,23 @@ ui.dispatch({ type: 'destroy', reason: 'host' })
 ```ts
 { type: 'dice', value: 1|2|3|4|5|6 }
 { type: 'play', tokenId }
-{ type: 'sync', state, event? }
+{ type: 'sync', state }              // silent catch-up after dice/play
+{ type: 'sync', state, event }       // lifecycle (e.g. forfeit → turn)
 { type: 'presence', color, presence, name?, id? }
 { type: 'seats', seats }
 { type: 'destroy', reason? }
 { type: 'config', mode?, aiDifficulty?, autoAi?, interactiveColors?, turnTimer?, absentSeat? }
 ```
 
+After `{dice|play}`, the host also sends a **silent** `{sync}` (no `event`) so clients
+align without replaying animations. `syncState(state)` is silent; `syncState(state, event)` emits.
+In `controlled` rooms, timer/absent skip send `{ type: 'forfeit' }` via `onAction` — never local forfeit.
+
 `onAction` return values:
 
 | Return | Meaning |
 |--------|---------|
-| `'defer'` | Wait for host `applyDice` / `syncState` |
+| `'defer'` | Wait for host `applyDice` / `dispatch` / `syncState` |
 | `'allow'` | Apply with local RNG (offline only) |
 | `{ dice: n }` | Apply this face immediately |
 

@@ -39,6 +39,8 @@ export type LudoRoomConfig = {
 export type LudoClientAction =
   | { type: 'roll'; roomId: string; color: ColorId }
   | { type: 'move'; roomId: string; color: ColorId; tokenId: string }
+  /** Turn timer / absent miss — host must forfeit (never mutate locally when controlled). */
+  | { type: 'forfeit'; roomId: string; color: ColorId }
   | {
       type: 'presence';
       roomId: string;

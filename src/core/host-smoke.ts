@@ -50,4 +50,25 @@ host2.handleAction({ type: 'leave', roomId: 'h2', color: 0 });
 assert(host2.isDestroyed(), 'abandoned after last human leave');
 assert(cmds2.some((c) => c.type === 'destroy'), 'destroy on abandon');
 
+// forfeit advances turn + sync with event
+const cmds3: LudoHostCommand[] = [];
+const room3 = offlineRoom({ roomId: 'h3', mode: 'rush', players: 2 });
+room3.seats = room3.seats.map((s) => ({
+  ...s,
+  kind: 'human' as const,
+  presence: 'ready' as const,
+}));
+const host3 = createLudoRoomHost({
+  room: room3,
+  broadcast: (c) => cmds3.push(c),
+});
+const before = host3.getState().turnId;
+const f = host3.handleAction({ type: 'forfeit', roomId: 'h3', color: 0 });
+assert(f.ok, 'forfeit ok');
+assert(host3.getState().turnId === before + 1, 'forfeit advances');
+assert(
+  cmds3.some((c) => c.type === 'sync' && c.event != null),
+  'forfeit sync has event',
+);
+
 console.log('[host] smoke ok');

@@ -481,6 +481,18 @@ export function mountLudo(
       const s = game.getState();
       const cur = s.players.find((x) => x.color === s.currentColor);
       if (!cur || !isSeatAbsent(cur.presence, cur.kind)) return;
+      if (opts.controlled) {
+        // Never mutate authoritative state locally
+        void resolveAction(
+          {
+            type: 'forfeit',
+            roomId: opts.roomId ?? '',
+            color: s.currentColor,
+          },
+          s,
+        );
+        return;
+      }
       if (absentCfg.action === 'skip') {
         showToast('Waiting… skipped');
         game.forfeitTurn();
@@ -516,12 +528,24 @@ export function mountLudo(
 
   async function runTimeoutAction(action: TurnTimerAutoAction) {
     if (action === 'none') return;
+    const s = game.getState();
+    if (opts.controlled) {
+      // Host is source of truth — send forfeit intent (skip & auto)
+      await resolveAction(
+        {
+          type: 'forfeit',
+          roomId: opts.roomId ?? '',
+          color: s.currentColor,
+        },
+        s,
+      );
+      return;
+    }
     if (action === 'skip') {
       game.forfeitTurn();
       return;
     }
     if (action === 'auto') {
-      const s = game.getState();
       // Auto-play for the timed seat (works even if human)
       playAiStep(game, s.currentColor, opts.aiDifficulty ?? 'hard');
     }
@@ -958,13 +982,32 @@ export function mountLudo(
     move: (tokenId: string) => {
       void requestMove(tokenId);
     },
-    forfeitTurn: () => game.forfeitTurn(),
+    forfeitTurn: () => {
+      if (opts.controlled) {
+        const s = game.getState();
+        void resolveAction(
+          {
+            type: 'forfeit',
+            roomId: opts.roomId ?? '',
+            color: s.currentColor,
+          },
+          s,
+        );
+        return true;
+      }
+      return game.forfeitTurn();
+    },
     applyDice: (value: number) => game.applyDice(value),
     applyMove: (tokenId: string) => game.move(tokenId),
-    syncState: (state, event) => game.syncState(state, event),
+    syncState: (state, event) => {
+      if (arguments.length < 2) game.syncState(state);
+      else game.syncState(state, event);
+    },
     dispatch: (cmd) => {
-      if (cmd.type === 'sync') game.syncState(cmd.state, cmd.event);
-      else if (cmd.type === 'dice') game.applyDice(cmd.value);
+      if (cmd.type === 'sync') {
+        if (cmd.event !== undefined) game.syncState(cmd.state, cmd.event);
+        else game.syncState(cmd.state);
+      } else if (cmd.type === 'dice') game.applyDice(cmd.value);
       else if (cmd.type === 'play') game.move(cmd.tokenId);
       else if (cmd.type === 'presence') {
         handle.setSeatPresence(cmd.color, cmd.presence, {
@@ -1070,7 +1113,7 @@ export function mountLudo(
         ...p,
         presence: normalizePresence(p),
       }));
-      game.syncState({ ...s, players: next }, s.lastEvent);
+      game.syncState({ ...s, players: next });
       scheduleAbsent(game.getState());
       scheduleTurnTimer(game.getState());
     },
@@ -1098,10 +1141,7 @@ export function mountLudo(
   };
 
   setDice(null, false);
-  bind();
-  // Initial whose-turn for consumers
-  previousTurnColor = null;
-  emitTurnCallbacks(game.getState());
+  bind(); // initial handleUpdate emits turn callbacks once via lastEvent
   opts.onReady?.(handle);
   return handle;
 }
