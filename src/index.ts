@@ -38,6 +38,7 @@ export type {
   ColorId,
   GameMode,
   PlayerKind,
+  SeatPresence,
   TokenState,
   PlayerConfig,
   Token,
@@ -60,6 +61,8 @@ export {
   type TurnTimerSnapshot,
   type TurnTimerTickContext,
   type TurnTimeoutContext,
+  type AbsentSeatConfig,
+  type AbsentSeatAction,
 } from './sdk/mount';
 
 export type {
@@ -75,5 +78,14 @@ export {
   DEFAULT_TURN_TIMER,
   type TurnTimerAppliesTo,
 } from './sdk/turnTimer';
+
+export {
+  isSeatPresent,
+  isSeatAbsent,
+  isSeatAwaiting,
+  normalizePresence,
+  presenceLabel,
+  withPresence,
+} from './sdk/presence';
 
 export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';

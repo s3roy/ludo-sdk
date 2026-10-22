@@ -6,6 +6,21 @@ export type GameMode = 'classic' | 'rush' | 'blitz';
 
 export type PlayerKind = 'human' | 'ai';
 
+/**
+ * Multiplayer seat lifecycle (host sets via `setSeatPresence` / sync).
+ * - `empty` — open slot in the lobby / queue
+ * - `joining` — reserved, client connecting
+ * - `joined` — in room, may not be ready
+ * - `ready` — ready to start / playing
+ * - `disconnected` — was in, dropped (host may skip or AI-fill)
+ */
+export type SeatPresence =
+  | 'empty'
+  | 'joining'
+  | 'joined'
+  | 'ready'
+  | 'disconnected';
+
 export type TokenState =
   | { kind: 'yard' }
   | { kind: 'track'; index: number }
@@ -17,6 +32,8 @@ export type PlayerConfig = {
   name: string;
   kind: PlayerKind;
   color: ColorId;
+  /** Join / queue status. Default: AI → `ready`, human → `joined`. */
+  presence?: SeatPresence;
 };
 
 export type Token = {
@@ -56,6 +73,12 @@ export type GameEvent =
       type: 'timeout';
       color: ColorId;
       phase: 'waiting_roll' | 'waiting_move';
+    }
+  /** Host / lobby updated seat join status. */
+  | {
+      type: 'presence';
+      color: ColorId;
+      presence: SeatPresence;
     };
 
 export type GameState = {

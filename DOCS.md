@@ -116,6 +116,7 @@ ui.setInteractiveColors([0, 2])   // shared device
 ```ts
 { type: 'roll', roomId, color }
 { type: 'move', roomId, color, tokenId }
+{ type: 'presence', roomId, color, presence } // optional lobby intent
 ```
 
 **Server → client** (`LudoHostCommand`):
@@ -124,7 +125,9 @@ ui.setInteractiveColors([0, 2])   // shared device
 { type: 'dice', value: 1|2|3|4|5|6 }
 { type: 'play', tokenId }
 { type: 'sync', state, event? }
-{ type: 'config', mode?, aiDifficulty?, autoAi?, interactiveColors? }
+{ type: 'presence', color, presence, name?, id? }
+{ type: 'seats', seats }
+{ type: 'config', mode?, aiDifficulty?, autoAi?, interactiveColors?, turnTimer?, absentSeat? }
 ```
 
 `onAction` return values:
@@ -166,23 +169,26 @@ g.move(req.tokenId)
 broadcast({ type: 'sync', state: g.getState() })
 ```
 
-## Turn timer (dice ring)
+## Turn timer (dice box border)
 
-Optional countdown around the dice. When a timed seat misses, you get `onTurnTimeout` and a configurable auto action.
+Optional countdown drawn as a **rounded rectangle** matching the dice dock outer shape (not a circle). Starts bright blue (`#0785FF`), turns red near the end.
+
+By default the timer is **visible for every seat’s turn** (you + opponents / AI). Miss actions (`skip` / `auto`) only apply to **interactive** seats so bots are not forfeited mid-turn.
 
 ```ts
 mountLudoRoom('#board', room, {
   turnTimer: {
     enabled: true,
     durationMs: 15_000,
-    appliesTo: 'interactive', // 'human' | 'all' | ColorId[]
+    appliesTo: 'all',         // default — show for opponents too
+                              // 'interactive' | 'human' | ColorId[]
     showRing: true,
-    onTimeout: 'skip',        // 'skip' | 'auto' | 'none'
+    onTimeout: 'skip',        // 'skip' | 'auto' | 'none' (your seats only)
     pauseWhileBusy: true,     // freeze during dice/move anim
   },
   onTurnTimeout: (ctx) => {
-    // analytics / host notify
-    // return 'auto' | 'skip' | 'none' to override config
+    // fires for any seat that hits 0 — including opponents
+    // return 'auto' | 'skip' | 'none' to override (interactive seats)
   },
   onTurnTick: ({ remainingMs, ratio }) => {
     // optional custom HUD
@@ -190,29 +196,78 @@ mountLudoRoom('#board', room, {
 })
 
 // runtime control
-ui.setTurnTimer({ enabled: true, durationMs: 20_000, onTimeout: 'auto' })
+ui.setTurnTimer({ enabled: true, durationMs: 20_000, appliesTo: 'all' })
 ui.pauseTurnTimer()
 ui.resumeTurnTimer()
 ui.resetTurnTimer()
-ui.getTurnTimer() // { remainingMs, running, paused, … }
+ui.getTurnTimer() // { remainingMs, running, paused, ratio, color, … }
 ui.forfeitTurn()  // same as skip
 ui.dispatch({ type: 'config', turnTimer: { enabled: false } })
 ```
 
-| `onTimeout` | Behaviour |
-|-------------|-----------|
-| `skip` | Forfeit seat → next player (`timeout` event) |
-| `auto` | Auto-roll / auto-pick move (AI difficulty) |
-| `none` | Callback only (host-authoritative rooms) |
+| Option | Meaning |
+|--------|---------|
+| `appliesTo: 'all'` | Show blue box timer on every turn (default) |
+| `appliesTo: 'interactive'` | Only when it’s your seat |
+| `onTimeout: 'skip'` | Forfeit your seat → next player (`timeout` event) |
+| `onTimeout: 'auto'` | Auto-roll / auto-pick move for your seat |
+| `onTimeout: 'none'` | Callback only (typical for `controlled` rooms) |
 
-Default: timer **off**. If you enable without `onTimeout`, offline defaults to `skip`, `controlled` rooms to `none`.
+Default: timer **off**. When enabled without `onTimeout`, offline → `skip`, `controlled` → `none`.
+
+## Seat presence / join queue
+
+Matchmaking and the join queue live on **your host**. The SDK tracks per-seat status so the UI and timer know who has actually joined.
+
+| `presence` | Meaning |
+|------------|---------|
+| `empty` | Open lobby slot |
+| `joining` | Reserved / connecting |
+| `joined` | In room |
+| `ready` | Ready / playing (AI default) |
+| `disconnected` | Dropped mid-game |
+
+```ts
+const room: LudoRoomConfig = {
+  roomId: 'room_abc',
+  mode: 'rush',
+  seats: [
+    { id: 'u1', name: 'Asha', kind: 'human', color: 0, presence: 'ready' },
+    { id: 'open', name: 'Open', kind: 'human', color: 1, presence: 'empty' },
+    { id: 'bot', name: 'Bot', kind: 'ai', color: 2, presence: 'ready' },
+  ],
+  interactiveColors: [0],
+  controlled: true,
+  // When current seat is empty / disconnected:
+  absentSeat: { action: 'skip', delayMs: 400 }, // or 'auto' | 'none'
+}
+
+const ui = mountLudoRoom('#board', room, {
+  onPresence: (color, presence, state) => {
+    // analytics / lobby UI
+  },
+})
+
+// host → clients
+ui.setSeatPresence(1, 'joining', { name: 'Dev', id: 'u2' })
+ui.setSeatPresence(1, 'ready')
+ui.dispatch({ type: 'presence', color: 1, presence: 'disconnected' })
+ui.dispatch({ type: 'seats', seats: nextLobbySeats })
+
+ui.allHumansPresent() // true when every human is joined/ready
+ui.getSeats()
+```
+
+- Timer does **not** run for `empty` / `joining` / `disconnected` seats.
+- `absentSeat.action`: `skip` forfeits, `auto` AI-fills, `none` waits for host (default in `controlled` rooms).
+- Animation events are still serialized on an internal promise queue so dice/moves never overlap.
 
 ## UI notes
 
 - Board is compact by default (`compact: true`)
 - No move history / mode pickers inside the board — host UI is yours
-- Legal pawns glow; seats show as initials only
-- Turn timer ring sits around the dice dock when enabled
+- Legal pawns glow; seats show presence badges when not ready
+- Turn timer is a blue rounded-rect border around the dice dock (visible for all turns when `appliesTo: 'all'`)
 
 ## Scripts
 

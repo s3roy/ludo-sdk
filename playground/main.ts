@@ -47,7 +47,7 @@ function timerConfig(key: string): TurnTimerConfig | false {
   return {
     enabled: true,
     durationMs: secs * 1000,
-    appliesTo: 'interactive',
+    appliesTo: 'all',
     showRing: true,
     onTimeout,
     pauseWhileBusy: true,

@@ -1,16 +1,25 @@
 import type { AiDifficulty } from '../core/ai';
 import { COLOR_NAMES, seatColorsForCount } from '../core/constants';
-import type { ColorId, GameEvent, GameMode, GameState, PlayerConfig } from '../core/types';
+import type {
+  ColorId,
+  GameEvent,
+  GameMode,
+  GameState,
+  PlayerConfig,
+  SeatPresence,
+} from '../core/types';
+import type { AbsentSeatConfig } from './presence';
 import type { TurnTimerConfig } from './turnTimer';
 
 /**
  * Room config — typically created by your backend, then passed into the SDK.
  * The SDK never creates multiplayer rooms itself; it renders + runs rules.
+ * Matchmaking / join queue lives on your host — push seat `presence` here.
  */
 export type LudoRoomConfig = {
   roomId: string;
   mode: GameMode;
-  /** 2–4 seats */
+  /** 2–4 seats (set `presence` for lobby / queue state). */
   seats: PlayerConfig[];
   /** Which colors this client may control (empty = spectator). */
   interactiveColors?: ColorId[];
@@ -21,12 +30,20 @@ export type LudoRoomConfig = {
   controlled?: boolean;
   /** Optional client turn clock (also set via mount options / setTurnTimer). */
   turnTimer?: TurnTimerConfig | false;
+  /** What to do when the current seat is empty / disconnected. */
+  absentSeat?: AbsentSeatConfig;
 };
 
 /** Intent from a client UI (send to your backend). */
 export type LudoClientAction =
   | { type: 'roll'; roomId: string; color: ColorId }
-  | { type: 'move'; roomId: string; color: ColorId; tokenId: string };
+  | { type: 'move'; roomId: string; color: ColorId; tokenId: string }
+  | {
+      type: 'presence';
+      roomId: string;
+      color: ColorId;
+      presence: SeatPresence;
+    };
 
 /** Commands your backend pushes to clients. */
 export type LudoHostCommand =
@@ -34,12 +51,21 @@ export type LudoHostCommand =
   | { type: 'dice'; value: number }
   | { type: 'play'; tokenId: string }
   | {
+      type: 'presence';
+      color: ColorId;
+      presence: SeatPresence;
+      name?: string;
+      id?: string;
+    }
+  | { type: 'seats'; seats: PlayerConfig[] }
+  | {
       type: 'config';
       mode?: GameMode;
       aiDifficulty?: AiDifficulty;
       autoAi?: boolean;
       interactiveColors?: ColorId[];
       turnTimer?: TurnTimerConfig | false;
+      absentSeat?: AbsentSeatConfig;
     };
 
 export type ActionContext = {
@@ -83,6 +109,7 @@ export function offlineRoom(opts: {
     name: COLOR_NAMES[color][0].toUpperCase() + COLOR_NAMES[color].slice(1),
     kind: color === human ? 'human' : 'ai',
     color,
+    presence: color === human ? 'ready' : 'ready',
   }));
   return {
     roomId: opts.roomId ?? `local-${Date.now()}`,

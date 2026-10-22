@@ -95,3 +95,15 @@ Scoped under `.ludo-sdk` (not global `:root`) so the embed does not leak into ho
 ```
 
 Import styles via `@ludorush/sdk/style.css` after bundling (`npm run build:sdk`).
+
+## Turn timer (dice box)
+
+The turn clock is a **rounded rect** hugging the dice dock (`64×64`, `rx=16`), not a circle.
+
+| State | Stroke |
+|-------|--------|
+| Fresh / mid | `#0785FF` (bright blue) |
+| Final stretch | ramps to `#FF303D` |
+| Track (idle under progress) | blue @ ~28% opacity |
+
+Visible for **all** seats by default (`appliesTo: 'all'`). See [DOCS.md](./DOCS.md#turn-timer-dice-box-border).

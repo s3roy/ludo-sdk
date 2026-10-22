@@ -14,6 +14,7 @@ import type {
   GameState,
   PlayerConfig,
   PlayerKind,
+  SeatPresence,
 } from '../core/types';
 import { animateDiceRoll, diceFaceHtml } from '../ui/dice';
 import {
@@ -32,6 +33,13 @@ import {
   type LudoHostCommand,
   type LudoRoomConfig,
 } from './room';
+import {
+  isSeatAbsent,
+  normalizePresence,
+  presenceLabel,
+  withPresence,
+  type AbsentSeatConfig,
+} from './presence';
 import {
   normalizeTurnTimer,
   setTimerRingProgress,
@@ -52,6 +60,7 @@ export type {
   TurnTimerTickContext,
   TurnTimeoutContext,
 } from './turnTimer';
+export type { AbsentSeatConfig, AbsentSeatAction } from './presence';
 
 export type LudoMountOptions = {
   mode?: GameMode;
@@ -81,7 +90,19 @@ export type LudoMountOptions = {
    * Pass `false` to force off. See `TurnTimerConfig`.
    */
   turnTimer?: TurnTimerConfig | false;
+  /**
+   * When the current seat is `empty` / `joining` / `disconnected`,
+   * auto skip or AI-fill (default `{ action: 'skip', delayMs: 400 }`).
+   * Set `action: 'none'` if the host will decide.
+   */
+  absentSeat?: AbsentSeatConfig;
   onEvent?: (event: GameEvent, state: GameState) => void;
+  /** Seat join / leave / ready (also via `dispatch({ type: 'presence' })`). */
+  onPresence?: (
+    color: ColorId,
+    presence: SeatPresence,
+    state: GameState,
+  ) => void;
   onChange?: (state: GameState) => void;
   /** Called before local apply when user rolls/moves. */
   onAction?: (
@@ -129,6 +150,17 @@ export type LudoHandle = {
   /** Restart countdown for the current seat (if applicable). */
   resetTurnTimer: () => void;
   getTurnTimer: () => TurnTimerSnapshot;
+  /** Update one seat’s join / queue status. */
+  setSeatPresence: (
+    color: ColorId,
+    presence: SeatPresence,
+    patch?: Partial<Pick<PlayerConfig, 'name' | 'id' | 'kind'>>,
+  ) => void;
+  /** Replace full seat list (lobby sync). */
+  setSeats: (seats: PlayerConfig[]) => void;
+  getSeats: () => PlayerConfig[];
+  /** True when every non-AI seat is `joined` or `ready`. */
+  allHumansPresent: () => boolean;
   reset: (opts?: LudoMountOptions) => void;
   destroy: () => void;
   setSoundEnabled: (on: boolean) => void;
@@ -184,12 +216,18 @@ export function mountLudo(
   let game = makeGame(opts);
   let unsub: (() => void) | null = null;
   let aiTimer: ReturnType<typeof setTimeout> | null = null;
+  let absentTimer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
   let busy = false;
   let boardReady = false;
+  /** Serializes dice / move animations so they never overlap. */
   let queue: Promise<void> = Promise.resolve();
 
   let timerCfg = normalizeTurnTimer(opts.turnTimer, !!opts.controlled);
+  let absentCfg: Required<AbsentSeatConfig> = {
+    action: opts.absentSeat?.action ?? (opts.controlled ? 'none' : 'skip'),
+    delayMs: opts.absentSeat?.delayMs ?? 400,
+  };
   let timerRaf = 0;
   let timerStartedAt = 0;
   let timerPausedAt: number | null = null;
@@ -309,10 +347,49 @@ export function mountLudo(
       return false;
     }
     const p = state.players.find((x) => x.color === state.currentColor);
+    if (!p) return false;
+    // No clock for seats still in the join queue / dropped
+    if (isSeatAbsent(p.presence, p.kind)) return false;
     return timerAppliesToSeat(timerCfg.appliesTo, state.currentColor, {
       interactive,
-      kind: p?.kind ?? 'human',
+      kind: p.kind,
     });
+  }
+
+  function applySeatPresence(
+    color: ColorId,
+    presence: SeatPresence,
+    patch?: Partial<Pick<PlayerConfig, 'name' | 'id' | 'kind'>>,
+  ) {
+    const s = game.getState();
+    const players = withPresence(s.players, color, presence, patch);
+    game.syncState({ ...s, players }, { type: 'presence', color, presence });
+    opts.onPresence?.(color, presence, game.getState());
+  }
+
+  function scheduleAbsent(state: GameState) {
+    if (absentTimer) clearTimeout(absentTimer);
+    absentTimer = null;
+    if (state.phase === 'finished' || busy) return;
+    const p = state.players.find((x) => x.color === state.currentColor);
+    if (!p || !isSeatAbsent(p.presence, p.kind)) return;
+    // AI seats are never "absent" for this path
+    if (p.kind === 'ai') return;
+    if (absentCfg.action === 'none') return;
+
+    absentTimer = setTimeout(() => {
+      if (destroyed || busy) return;
+      const s = game.getState();
+      const cur = s.players.find((x) => x.color === s.currentColor);
+      if (!cur || !isSeatAbsent(cur.presence, cur.kind)) return;
+      if (absentCfg.action === 'skip') {
+        showToast('Waiting… skipped');
+        game.forfeitTurn();
+      } else if (absentCfg.action === 'auto') {
+        showToast('Away — auto');
+        playAiStep(game, s.currentColor, opts.aiDifficulty ?? 'hard');
+      }
+    }, absentCfg.delayMs);
   }
 
   function paintTimerRing() {
@@ -368,7 +445,10 @@ export function mountLudo(
     showToast('Time!');
     sounds.play('deny');
 
-    let action: TurnTimerAutoAction = timerCfg.onTimeout;
+    // Visual timer runs for everyone; skip/auto only enforces on your seats
+    let action: TurnTimerAutoAction = canControl(state.currentColor)
+      ? timerCfg.onTimeout
+      : 'none';
     if (opts.onTurnTimeout) {
       try {
         const override = await opts.onTurnTimeout(ctx);
@@ -547,6 +627,7 @@ export function mountLudo(
     syncTimerPauseForBusy();
     const next = game.getState();
     scheduleAi(next);
+    scheduleAbsent(next);
     scheduleTurnTimer(next);
   }
 
@@ -574,16 +655,30 @@ export function mountLudo(
     if (playersEl) {
       playersEl.innerHTML = state.players
         .map((p) => {
+          const presence = normalizePresence(p);
           const active =
             p.color === state.currentColor ? ' ludo-sdk__player--active' : '';
+          const absent = isSeatAbsent(presence, p.kind)
+            ? ` ludo-sdk__player--${presence}`
+            : presence === 'ready'
+              ? ' ludo-sdk__player--ready'
+              : '';
           const you = canControl(p.color);
-          const role = you ? 'You' : p.kind === 'ai' ? 'AI' : p.name;
+          let role = you ? 'You' : p.kind === 'ai' ? 'AI' : p.name;
+          if (presence === 'empty') role = 'Open';
+          else if (presence === 'joining') role = 'Joining…';
+          else if (presence === 'disconnected') role = 'Away';
           const crown = you ? '<span class="ludo-sdk__player-crown">👑</span>' : '';
           const done = state.ranking.includes(p.color) ? ' ✓' : '';
           const name = COLOR_NAMES[p.color];
-          return `<div class="ludo-sdk__player ludo-sdk__player--c${p.color}${active}">
+          const badge =
+            presence !== 'ready' && p.kind !== 'ai'
+              ? `<span class="ludo-sdk__player-presence">${presenceLabel(presence)}</span>`
+              : '';
+          return `<div class="ludo-sdk__player ludo-sdk__player--c${p.color}${active}${absent}" data-presence="${presence}">
             <span class="ludo-sdk__player-dot"></span>
             <span class="ludo-sdk__player-label">${name[0].toUpperCase()}${name.slice(1)} · ${role}${done}</span>
+            ${badge}
             ${crown}
           </div>`;
         })
@@ -605,6 +700,9 @@ export function mountLudo(
     if (opts.controlled) return;
     if (opts.autoAi === false) return;
     if (state.phase === 'finished') return;
+    const p = state.players.find((x) => x.color === state.currentColor);
+    // Absent humans are handled by scheduleAbsent — don't AI them unless action is auto
+    if (p && isSeatAbsent(p.presence, p.kind) && p.kind === 'human') return;
     if (!currentPlayerIsAi(state)) return;
     if (canControl(state.currentColor)) return;
     if (busy) return;
@@ -698,9 +796,14 @@ export function mountLudo(
 
   function reset(next?: LudoMountOptions) {
     if (aiTimer) clearTimeout(aiTimer);
+    if (absentTimer) clearTimeout(absentTimer);
     stopTurnTimer(true);
     if (next) opts = { ...opts, ...next };
     timerCfg = normalizeTurnTimer(opts.turnTimer, !!opts.controlled);
+    absentCfg = {
+      action: opts.absentSeat?.action ?? (opts.controlled ? 'none' : 'skip'),
+      delayMs: opts.absentSeat?.delayMs ?? 400,
+    };
     interactive = new Set(
       opts.interactiveColors ??
         resolveSeats(opts)
@@ -715,6 +818,7 @@ export function mountLudo(
   function destroy() {
     destroyed = true;
     if (aiTimer) clearTimeout(aiTimer);
+    if (absentTimer) clearTimeout(absentTimer);
     stopTurnTimer(true);
     unsub?.();
     root.innerHTML = '';
@@ -740,12 +844,27 @@ export function mountLudo(
       if (cmd.type === 'sync') game.syncState(cmd.state, cmd.event);
       else if (cmd.type === 'dice') game.applyDice(cmd.value);
       else if (cmd.type === 'play') game.move(cmd.tokenId);
-      else if (cmd.type === 'config') {
+      else if (cmd.type === 'presence') {
+        handle.setSeatPresence(cmd.color, cmd.presence, {
+          name: cmd.name,
+          id: cmd.id,
+        });
+      } else if (cmd.type === 'seats') {
+        handle.setSeats(cmd.seats);
+      } else if (cmd.type === 'config') {
         if (cmd.mode) handle.setMode(cmd.mode);
         if (cmd.aiDifficulty) handle.setAiDifficulty(cmd.aiDifficulty);
         if (cmd.autoAi != null) handle.setAutoAi(cmd.autoAi);
         if (cmd.interactiveColors) handle.setInteractiveColors(cmd.interactiveColors);
         if (cmd.turnTimer !== undefined) handle.setTurnTimer(cmd.turnTimer);
+        if (cmd.absentSeat) {
+          opts.absentSeat = cmd.absentSeat;
+          absentCfg = {
+            action: cmd.absentSeat.action ?? absentCfg.action,
+            delayMs: cmd.absentSeat.delayMs ?? absentCfg.delayMs,
+          };
+          scheduleAbsent(game.getState());
+        }
       }
     },
     setMode: (mode) => {
@@ -818,6 +937,24 @@ export function mountLudo(
       scheduleTurnTimer(game.getState());
     },
     getTurnTimer: () => getTurnTimerSnapshot(),
+    setSeatPresence: (color, presence, patch) => {
+      applySeatPresence(color, presence, patch);
+    },
+    setSeats: (seats) => {
+      const s = game.getState();
+      const next = seats.slice(0, 4).map((p) => ({
+        ...p,
+        presence: normalizePresence(p),
+      }));
+      game.syncState({ ...s, players: next }, s.lastEvent);
+      scheduleAbsent(game.getState());
+      scheduleTurnTimer(game.getState());
+    },
+    getSeats: () => game.getState().players.map((p) => ({ ...p })),
+    allHumansPresent: () => {
+      const humans = game.getState().players.filter((p) => p.kind === 'human');
+      return humans.every((p) => !isSeatAbsent(p.presence, p.kind));
+    },
     reset,
     destroy,
     setSoundEnabled: (on) => {
@@ -854,13 +991,18 @@ export function mountLudoRoom(
     interactiveColors: room.interactiveColors,
     controlled: room.controlled ?? false,
     turnTimer: extra.turnTimer ?? room.turnTimer,
+    absentSeat: extra.absentSeat ?? room.absentSeat,
   });
 }
 
 function makeGame(opts: LudoMountOptions): LudoGame {
+  const players = resolveSeats(opts).map((p) => ({
+    ...p,
+    presence: normalizePresence(p),
+  }));
   return createGame({
     mode: opts.mode ?? 'rush',
-    players: resolveSeats(opts),
+    players,
   });
 }
 

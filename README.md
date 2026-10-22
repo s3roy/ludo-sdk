@@ -25,6 +25,8 @@ mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }))
 - **AI** — easy / normal / hard (finish → capture → escape tiers)
 - **2–4 seats** — 2-player uses diagonal colours (Red↔Yellow or Green↔Blue)
 - **Host rooms** — `controlled: true` + `onAction` → your backend owns dice & sync
+- **Turn timer** — blue rounded-rect border on the dice dock (visible for all seats); skip/auto on miss
+- **Seat presence** — `empty` → `joining` → `ready` / `disconnected` for lobby & away handling
 
 ## Modes
 
@@ -77,7 +79,7 @@ Step-by-step contracts, handle API, and headless validation: **[DOCS.md](./DOCS.
 
 | Doc | Contents |
 |-----|----------|
-| [DOCS.md](./DOCS.md) | Room lifecycle, actions, host commands, headless |
+| [DOCS.md](./DOCS.md) | Rooms, timer, seat presence, host commands, headless |
 | [RULES.md](./RULES.md) | Engine rules (safe squares, blocks, extras) |
 | [DESIGN.md](./DESIGN.md) | Colour system & CSS variables |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev setup & tests |

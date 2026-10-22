@@ -33,7 +33,7 @@ export type TurnTimerTickContext = {
 };
 
 /**
- * Controllable per-turn clock shown as a ring around the dice.
+ * Controllable per-turn clock drawn as a rounded rect matching the dice dock.
  * All fields optional — merge with defaults via `normalizeTurnTimer`.
  */
 export type TurnTimerConfig = {
@@ -41,13 +41,17 @@ export type TurnTimerConfig = {
   enabled?: boolean;
   /** Full countdown length. Default `15000`. */
   durationMs?: number;
-  /** Who is timed. Default `'interactive'`. */
+  /**
+   * Who shows the timer UI. Default `'all'` (you + opponents).
+   * Timeout skip/auto still only enforces for interactive seats.
+   */
   appliesTo?: TurnTimerAppliesTo;
-  /** Draw SVG ring around dice dock. Default `true`. */
+  /** Draw border around dice dock. Default `true`. */
   showRing?: boolean;
   /**
    * Built-in timeout behaviour when `onTurnTimeout` does not override.
    * Default `'skip'` offline, `'none'` when `controlled`.
+   * Only applied to interactive (your) seats.
    */
   onTimeout?: TurnTimerAutoAction;
   /** Freeze the clock during move/dice animations. Default `true`. */
@@ -78,7 +82,7 @@ export const DEFAULT_TURN_TIMER: Required<
 > = {
   enabled: false,
   durationMs: 15_000,
-  appliesTo: 'interactive',
+  appliesTo: 'all',
   showRing: true,
   onTimeout: 'skip',
   pauseWhileBusy: true,
@@ -108,10 +112,9 @@ export function normalizeTurnTimer(
   return {
     enabled: input.enabled ?? false,
     durationMs: Math.max(1000, Math.floor(input.durationMs ?? 15_000)),
-    appliesTo: input.appliesTo ?? 'interactive',
+    appliesTo: input.appliesTo ?? 'all',
     showRing: input.showRing !== false,
-    onTimeout:
-      input.onTimeout ?? (controlled ? 'none' : 'skip'),
+    onTimeout: input.onTimeout ?? (controlled ? 'none' : 'skip'),
     pauseWhileBusy: input.pauseWhileBusy !== false,
   };
 }
@@ -131,51 +134,65 @@ export function timerAppliesToSeat(
   return false;
 }
 
-/** Circumference for r=32 in the 72×72 ring viewBox (outer line). */
-export const TIMER_RING_C = 2 * Math.PI * 32;
+/**
+ * Rounded-rect path matching the dice dock (64×64, rx=16) inset in 76 viewBox.
+ * Perimeter used for stroke-dasharray countdown.
+ */
+export const TIMER_BOX = {
+  x: 6,
+  y: 6,
+  w: 64,
+  h: 64,
+  rx: 16,
+} as const;
 
-/** Deep navy → danger red (remaining ratio 1 → 0). */
-const TIMER_DEEP = { r: 0x10, g: 0x26, b: 0x4a }; // #10264A
-const TIMER_MID = { r: 0x07, g: 0x85, b: 0xff }; // #0785FF
+/** Perimeter of rounded rect: 2*(w+h−4r) + 2πr */
+export const TIMER_RING_C =
+  2 * (TIMER_BOX.w + TIMER_BOX.h - 4 * TIMER_BOX.rx) + 2 * Math.PI * TIMER_BOX.rx;
+
+/** Bright blue → danger red (remaining ratio 1 → 0). */
+const TIMER_BLUE = { r: 0x07, g: 0x85, b: 0xff }; // #0785FF
+const TIMER_BLUE_HI = { r: 0x45, g: 0xb4, b: 0xff }; // #45B4FF
 const TIMER_RED = { r: 0xff, g: 0x30, b: 0x3d }; // #FF303D
 
 function mixChan(a: number, b: number, t: number) {
   return Math.round(a + (b - a) * t);
 }
 
-/** Map remaining ratio → stroke HEX (deep early, red in the final stretch). */
-export function timerStrokeForRatio(ratio: number): string {
-  const r = Math.min(1, Math.max(0, ratio));
-  // Hold deep/blue until ~40% left, then ramp hard into red
-  let t: number;
-  if (r > 0.4) {
-    t = (1 - r) / 0.6; // 0 → ~1 across the first 60% of the clock
-    t = t * 0.35; // stay mostly deep/blue
-    const c = {
-      r: mixChan(TIMER_DEEP.r, TIMER_MID.r, t),
-      g: mixChan(TIMER_DEEP.g, TIMER_MID.g, t),
-      b: mixChan(TIMER_DEEP.b, TIMER_MID.b, t),
-    };
-    return `#${[c.r, c.g, c.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
-  }
-  // Final 40%: blue → red
-  t = 1 - r / 0.4;
-  // Ease-in so the last moments read urgently red
-  t = t * t;
-  const c = {
-    r: mixChan(TIMER_MID.r, TIMER_RED.r, t),
-    g: mixChan(TIMER_MID.g, TIMER_RED.g, t),
-    b: mixChan(TIMER_MID.b, TIMER_RED.b, t),
-  };
+function toHex(c: { r: number; g: number; b: number }): string {
   return `#${[c.r, c.g, c.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
 }
 
+/** Map remaining ratio → stroke HEX (bright blue early, red at the end). */
+export function timerStrokeForRatio(ratio: number): string {
+  const r = Math.min(1, Math.max(0, ratio));
+  if (r > 0.35) {
+    // Stay clearly blue for most of the clock
+    const t = ((1 - r) / 0.65) * 0.25;
+    return toHex({
+      r: mixChan(TIMER_BLUE.r, TIMER_BLUE_HI.r, t),
+      g: mixChan(TIMER_BLUE.g, TIMER_BLUE_HI.g, t),
+      b: mixChan(TIMER_BLUE.b, TIMER_BLUE_HI.b, t),
+    });
+  }
+  // Final 35%: blue → red
+  let t = 1 - r / 0.35;
+  t = t * t;
+  return toHex({
+    r: mixChan(TIMER_BLUE.r, TIMER_RED.r, t),
+    g: mixChan(TIMER_BLUE.g, TIMER_RED.g, t),
+    b: mixChan(TIMER_BLUE.b, TIMER_RED.b, t),
+  });
+}
+
 export function timerRingMarkup(): string {
-  return `<svg class="ludo-sdk__timer-ring" viewBox="0 0 72 72" aria-hidden="true" focusable="false">
-    <circle class="ludo-sdk__timer-outer" cx="36" cy="36" r="33.5" fill="none"/>
-    <circle class="ludo-sdk__timer-track" cx="36" cy="36" r="32" fill="none"/>
-    <circle class="ludo-sdk__timer-progress" data-ludo-timer-progress cx="36" cy="36" r="32" fill="none"
-      stroke-dasharray="${TIMER_RING_C}" stroke-dashoffset="0"/>
+  const { x, y, w, h, rx } = TIMER_BOX;
+  return `<svg class="ludo-sdk__timer-ring" viewBox="0 0 76 76" aria-hidden="true" focusable="false">
+    <rect class="ludo-sdk__timer-track" x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="none"/>
+    <rect class="ludo-sdk__timer-progress" data-ludo-timer-progress
+      x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="none"
+      stroke-dasharray="${TIMER_RING_C}" stroke-dashoffset="0"
+      pathLength="${TIMER_RING_C}"/>
   </svg>`;
 }
 
@@ -188,16 +205,19 @@ export function setTimerRingProgress(
   const wrap = ringHost.closest('.ludo-sdk__dice-wrap') as HTMLElement | null;
   wrap?.classList.toggle('ludo-sdk__dice-wrap--timing', active);
   const r = Math.min(1, Math.max(0, ratio));
-  const urgency = 1 - r; // 0 fresh → 1 empty
+  const urgency = 1 - r;
   if (wrap) {
     wrap.style.setProperty('--timer-urgency', urgency.toFixed(3));
+    wrap.style.setProperty('--timer-stroke', active ? timerStrokeForRatio(r) : 'transparent');
     wrap.classList.toggle('ludo-sdk__dice-wrap--urgent', active && r <= 0.35);
     wrap.classList.toggle('ludo-sdk__dice-wrap--critical', active && r <= 0.15);
   }
-  const progress = ringHost.querySelector<SVGCircleElement>(
+  const progress = ringHost.querySelector<SVGRectElement>(
     '[data-ludo-timer-progress]',
   );
   if (!progress) return;
+  // pathLength normalizes dash so countdown is even around the rounded box
+  progress.style.strokeDasharray = String(TIMER_RING_C);
   progress.style.strokeDashoffset = String(TIMER_RING_C * (1 - r));
   progress.style.opacity = active ? '1' : '0';
   progress.style.stroke = active ? timerStrokeForRatio(r) : '';
