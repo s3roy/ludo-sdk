@@ -3,7 +3,8 @@
  * Dice, legality, win, destroy, turn clock, auto-turn — all server-side.
  * Clients only send intents + render host commands.
  *
- * There is no player "host". Your backend creates rooms / uses the matchmaker.
+ * Your backend decides who plays: call `createMatch({ players })` with the
+ * users you already matched. Queue / Elo / parties stay in your code.
  */
 import { chooseAiMove, type AiDifficulty } from '../core/ai';
 import { COLOR_NAMES, seatColorsForCount } from '../core/constants';
@@ -52,6 +53,32 @@ export type CreateLobbyRoomInput = {
   meta?: Record<string, unknown>;
   /** Backend lifecycle: miss-turn, auto-turn cap, leave. */
   policy?: RoomLifecyclePolicy;
+};
+
+/** One human you already decided belongs in this match. */
+export type CreateMatchPlayer = {
+  playerId: string;
+  name?: string;
+  /** Pin a seat colour; omit to assign next free seat. */
+  color?: ColorId;
+};
+
+/**
+ * Backend match entry — you pick the users, SDK starts the room.
+ * Matchmaking / queues live in your backend; this only seats + starts.
+ */
+export type CreateMatchInput = CreateLobbyRoomInput & {
+  players: CreateMatchPlayer[];
+};
+
+export type CreateMatchOk = {
+  ok: true;
+  roomId: string;
+  players: LobbyPlayer[];
+  config: LudoRoomConfig;
+  policy: NormalizedRoomPolicy;
+  /** playerId → seat colour */
+  seats: Record<string, ColorId>;
 };
 
 export type JoinOk = {
@@ -124,6 +151,11 @@ type InternalRoom = {
 };
 
 export type LudoLobby = {
+  /**
+   * One-shot: seat the players your backend chose and start.
+   * Prefer this over createRoom/join/start when you already matched users.
+   */
+  createMatch: (input: CreateMatchInput) => CreateMatchOk | JoinErr;
   createRoom: (input?: CreateLobbyRoomInput) => {
     roomId: string;
     status: LobbyRoomStatus;
@@ -234,7 +266,7 @@ function snapshot(room: InternalRoom): JoinOk {
 
 /**
  * Multi-room lobby. Wire `broadcast` to your realtime layer.
- * Prefer `createLudoMatchmaker` for Play-queue integration.
+ * Typical backend: match users yourself → `createMatch({ players })`.
  */
 export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
   const rooms = new Map<string, InternalRoom>();
@@ -701,7 +733,79 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     rooms.delete(roomId);
   }
 
+  /**
+   * Backend already matched users → seat them and start in one call.
+   * Empty seats become AI when `fillAi` (default true).
+   */
+  function createMatch(input: CreateMatchInput): CreateMatchOk | JoinErr {
+    const list = input.players ?? [];
+    if (list.length < 1) return { ok: false, error: 'need_players' };
+
+    const ids = new Set(list.map((p) => p.playerId));
+    if (ids.size !== list.length) {
+      return { ok: false, error: 'duplicate_player' };
+    }
+    if ([...ids].some((id) => !id)) {
+      return { ok: false, error: 'need_player_id' };
+    }
+
+    const inferred =
+      list.length <= 2 ? 2 : list.length === 3 ? 3 : 4;
+    const maxPlayers = (input.maxPlayers ?? inferred) as 2 | 3 | 4;
+    if (list.length > maxPlayers) {
+      return { ok: false, error: 'too_many_players' };
+    }
+
+    const { roomId } = createRoom({ ...input, maxPlayers });
+    const room = get(roomId);
+    if (!room) return { ok: false, error: 'room_not_found' };
+
+    const used = new Set<ColorId>();
+    for (const p of list) {
+      let color = p.color;
+      if (color != null) {
+        if (!room.colors.includes(color) || used.has(color)) {
+          destroy(roomId, 'host');
+          return { ok: false, error: 'bad_color' };
+        }
+      } else {
+        color = room.colors.find((c) => !used.has(c));
+        if (color == null) {
+          destroy(roomId, 'host');
+          return { ok: false, error: 'no_seat' };
+        }
+      }
+      used.add(color);
+      room.players.set(p.playerId, {
+        playerId: p.playerId,
+        name: p.name?.trim() || `Player ${color + 1}`,
+        color,
+        ready: true,
+      });
+    }
+
+    const started = start(roomId);
+    if (!started.ok) {
+      destroy(roomId, 'host');
+      return started;
+    }
+
+    const players = [...room.players.values()];
+    const seats: Record<string, ColorId> = {};
+    for (const p of players) seats[p.playerId] = p.color;
+
+    return {
+      ok: true,
+      roomId,
+      players,
+      config: toConfig(room),
+      policy: room.policy,
+      seats,
+    };
+  }
+
   return {
+    createMatch,
     createRoom,
     join,
     ready,

@@ -179,11 +179,14 @@ function fanOut(clients: LudoGame[], cmds: LudoHostCommand[]) {
       assert(r.ok, `move ok @${steps}`);
     } else break;
 
-    // After dice|play, sync must be silent (no event field)
+    // After dice|play, sync is silent — except winning move (carries `win`)
     const syncCmds = batch.filter((c) => c.type === 'sync');
     for (const sc of syncCmds) {
       if (sc.type === 'sync') {
-        assert(sc.event === undefined, `post action sync silent @${steps}`);
+        const ok =
+          sc.event === undefined ||
+          (sc.event != null && sc.event.type === 'win');
+        assert(ok, `post action sync silent @${steps}`);
       }
     }
 

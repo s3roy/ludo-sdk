@@ -157,29 +157,58 @@ export function yardSlotPixels(
   ];
 }
 
+/** Classic pawn stack fan (small pieces). */
 const STACK_FAN: Pt[][] = [
   [{ x: 0, y: 0 }],
   [
-    { x: -3, y: 0 },
-    { x: 3, y: 0 },
+    { x: -5, y: 0 },
+    { x: 5, y: 0 },
   ],
   [
-    { x: -3.5, y: -2 },
-    { x: 3.5, y: -2 },
-    { x: 0, y: 3 },
+    { x: -6, y: -3 },
+    { x: 6, y: -3 },
+    { x: 0, y: 5 },
   ],
   [
-    { x: -3.5, y: -3 },
-    { x: 3.5, y: -3 },
-    { x: -3.5, y: 3 },
-    { x: 3.5, y: 3 },
+    { x: -6, y: -5 },
+    { x: 6, y: -5 },
+    { x: -6, y: 5 },
+    { x: 6, y: 5 },
   ],
 ];
 
-export function stackPixelOffset(stackIndex: number, stackCount: number): Pt {
+/**
+ * King pin tips share a point — need a wider fan so foot rings / bodies
+ * don’t pile into one overlapping column.
+ */
+const STACK_FAN_PIN: Pt[][] = [
+  [{ x: 0, y: 0 }],
+  [
+    { x: -14, y: 2 },
+    { x: 14, y: 2 },
+  ],
+  [
+    { x: -15, y: -2 },
+    { x: 15, y: -2 },
+    { x: 0, y: 12 },
+  ],
+  [
+    { x: -15, y: -6 },
+    { x: 15, y: -6 },
+    { x: -15, y: 10 },
+    { x: 15, y: 10 },
+  ],
+];
+
+export function stackPixelOffset(
+  stackIndex: number,
+  stackCount: number,
+  style: 'pin' | 'default' = 'default',
+): Pt {
+  const table = style === 'pin' ? STACK_FAN_PIN : STACK_FAN;
   const n = Math.max(1, Math.min(4, stackCount));
   const i = Math.max(0, Math.min(n - 1, stackIndex));
-  return STACK_FAN[n - 1][i];
+  return table[n - 1]![i]!;
 }
 
 /** White-well inset used by Ludo King flat yards (must match board paint). */
@@ -190,11 +219,13 @@ export function tokenPixel(
   slot: 0 | 1 | 2 | 3,
   state: TokenState,
   stack?: { index: number; count: number },
+  /** Wider fan when rendering tip-anchored King pins. */
+  stackStyle: 'pin' | 'default' = 'default',
 ): Pt {
   let base: Pt;
   if (state.kind === 'yard') {
     // Exact 2×2 seats in the white well (same coords as painted discs)
-    base = yardSlotPixels(color, YARD_WELL_INSET_FLAT)[slot];
+    base = yardSlotPixels(color, YARD_WELL_INSET_FLAT)[slot]!;
   } else if (state.kind === 'finished') {
     const offsets = [
       { x: -6, y: -6 },
@@ -203,8 +234,8 @@ export function tokenPixel(
       { x: 6, y: 6 },
     ];
     base = {
-      x: 7.5 * CELL + offsets[slot].x,
-      y: 7.5 * CELL + offsets[slot].y,
+      x: 7.5 * CELL + offsets[slot]!.x,
+      y: 7.5 * CELL + offsets[slot]!.y,
     };
   } else if (state.kind === 'homeColumn') {
     const c = homeColumnCell(color, state.index);
@@ -215,7 +246,7 @@ export function tokenPixel(
   }
 
   if (stack && stack.count > 1 && state.kind !== 'yard' && state.kind !== 'finished') {
-    const o = stackPixelOffset(stack.index, stack.count);
+    const o = stackPixelOffset(stack.index, stack.count, stackStyle);
     return { x: base.x + o.x, y: base.y + o.y };
   }
   return base;

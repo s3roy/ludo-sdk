@@ -208,33 +208,26 @@ export function runRuleTests() {
     assert(b3.every((m) => !m.entersBoard), 'blitz: no enter on 3');
   }
 
-  // Three sixes forfeit
+  // Third consecutive 6 in one turn has P=0 (roll is 1–5; applyDice(6) rejected)
   {
-    let n = 0;
-    const rng = () => {
-      // always return value that floors to 6: 0.99 → 1+floor(5.94)=6
-      n += 1;
-      return 0.99;
-    };
+    const rng = () => 0.99; // would be 6 on a full d6
     const g = createGame({ mode: 'classic', players: fourAi, rng });
-    g.roll(); // 6, open available
-    // must move or we'll keep getting sixes
-    const moves = g.legalMoves();
-    if (moves.length) g.play(moves[0]);
-    g.roll();
+    g.roll(); // 6
+    const m1 = g.legalMoves();
+    if (m1.length) g.play(m1[0]!);
+    g.roll(); // 6 again
     if (g.getState().phase === 'waiting_move') {
       const m2 = g.legalMoves();
-      if (m2.length) g.play(m2[0]);
+      if (m2.length) g.play(m2[0]!);
     }
-    const before = g.getState().currentColor;
-    g.roll(); // third 6 → forfeit
-    const after = g.getState();
+    assert(g.getState().consecutiveSixes === 2, 'two sixes stacked');
+    const third = g.roll();
+    assert(third != null && third >= 1 && third <= 5, 'third roll is 1–5');
+    assert(g.getState().dice === third, 'third face applied');
     assert(
-      after.currentColor !== before || after.turnId > 1,
-      'third six advances turn',
+      g.applyDice(6) == null,
+      'host cannot force a third consecutive 6',
     );
-    assert(after.phase === 'waiting_roll', 'after third six waiting roll');
-    assert(after.dice == null, 'third six clears dice');
   }
 
   console.log('[rules] all assertions passed');

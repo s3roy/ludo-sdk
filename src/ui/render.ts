@@ -101,7 +101,7 @@ export function renderBoardBase(
         const slotFill = YARD[color];
         // Seat disc only — dark-red ring lives on each pin, not in the yard box
         parts.push(
-          `<circle cx="${s.x}" cy="${s.y}" r="${sh.yardSlotR}" fill="${slotFill}"/>`,
+          `<circle class="ludo-sdk__yard-seat" cx="${s.x}" cy="${s.y}" r="${sh.yardSlotR}" fill="${slotFill}"/>`,
         );
       } else {
         parts.push(
@@ -391,7 +391,7 @@ export function tokenMarkup(
       'M0 -50 C-11 -50 -18 -42 -18 -32 C-18 -20 -6 -8 0 0 C6 -8 18 -20 18 -32 C18 -42 11 -50 0 -50Z';
     const shellInner =
       'M0 -48 C-10 -48 -16 -41 -16 -32 C-16 -22 -6 -11 0 -3 C6 -11 16 -22 16 -32 C16 -41 10 -48 0 -48Z';
-    return `<g class="${cls}" data-token-id="${token.id}" data-pin="lk12" style="transform: translate(${x}px, ${ty}px)">
+    return `<g class="${cls}" data-token-id="${token.id}" data-pin="lk14" style="transform: translate(${x}px, ${ty}px)">
       <defs>
         <linearGradient id="${gid}Shell" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="#FFFFFF"/>
@@ -400,17 +400,20 @@ export function tokenMarkup(
         </linearGradient>
         ${gemDefs}
       </defs>
-      <!-- Dark-red foot (idle); white ring marks current/playable -->
-      <circle class="ludo-sdk__pin-foot" cx="0" cy="0.4" r="8.2" fill="none" stroke="#6B1F2A" stroke-width="2.7"/>
-      <g transform="scale(0.48)">
+      <g class="ludo-sdk__pin-base">
+        <circle class="ludo-sdk__pin-foot" cx="0" cy="1.2" r="8.2" fill="none" stroke="#6B1F2A" stroke-width="2.7"/>
+      </g>
+      <g class="ludo-sdk__pin-figure" transform="scale(0.48)">
         <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="#29353B" stroke="#111D24" stroke-width="2" d="${shellOuter}"/>
         <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="url(#${gid}Shell)" stroke="#FFFFFF" stroke-width="1.5" d="${shellInner}"/>
         <circle cx="0" cy="-33" r="12.5" fill="${pin.gemWell}"/>
         <circle class="ludo-sdk__pawn-head" cx="0" cy="-34" r="11" fill="${gemFill}" stroke="${pin.gemStroke}" stroke-width="1.5"/>
         <ellipse cx="-4" cy="-40" rx="4" ry="2.5" fill="#FFFFFF" opacity="${pin.hi}" transform="rotate(-30 -4 -40)"/>
       </g>
-      <circle class="ludo-sdk__token-ring" cx="0" cy="0.4" r="9.6" fill="none"
-        stroke="#FFFFFF" stroke-width="2.4" stroke-dasharray="3.6 2.6" stroke-linecap="round" opacity="0"/>
+      <!-- Ring + hit pad after figure so they stay visible / tappable -->
+      <circle class="ludo-sdk__token-ring" cx="0" cy="1.2" r="11" fill="none"
+        stroke="#FFC107" stroke-width="2.8" stroke-dasharray="4 2.4" stroke-linecap="round"/>
+      <circle class="ludo-sdk__token-hit" cx="0" cy="-6" r="16" fill="transparent"/>
       ${label}
     </g>`;
   }
@@ -418,7 +421,6 @@ export function tokenMarkup(
   return `<g class="${cls}" data-token-id="${token.id}" style="transform: translate(${x}px, ${ty}px)">
     <ellipse class="ludo-sdk__pawn-shadow" cx="0" cy="9.5" rx="8.5" ry="2.4" fill="rgba(0,0,0,0.35)"/>
     <circle class="ludo-sdk__pin-foot" cx="0" cy="8.2" r="7.4" fill="none" stroke="#6B1F2A" stroke-width="2.6"/>
-    <circle class="ludo-sdk__token-ring" cx="0" cy="8.2" r="9.2" fill="none" stroke="#6B1F2A" stroke-width="2.4" stroke-dasharray="3.6 2.8" stroke-linecap="round" opacity="0"/>
     <ellipse class="ludo-sdk__pawn-base ludo-sdk__token-body" cx="0" cy="7.4" rx="8.6" ry="3" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
     <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"
       d="M -5.4 6.6
@@ -435,6 +437,9 @@ export function tokenMarkup(
     <circle class="ludo-sdk__pawn-head ludo-sdk__token-body" cx="0" cy="-7.8" r="3.8" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
     <circle cx="-1.2" cy="-8.9" r="1.35" fill="#fff" opacity="0.62"/>
     <ellipse cx="1.2" cy="-6.6" rx="1.1" ry="0.55" fill="#fff" opacity="0.18"/>
+    <circle class="ludo-sdk__token-ring" cx="0" cy="8.2" r="11" fill="none"
+      stroke="#FFC107" stroke-width="2.6" stroke-dasharray="4 2.4" stroke-linecap="round"/>
+    <circle class="ludo-sdk__token-hit" cx="0" cy="0" r="14" fill="transparent"/>
     ${label}
   </g>`;
 }
@@ -481,17 +486,40 @@ export function syncTokens(
     group.forEach((t, i) => stackOf.set(t.id, { index: i, count: group.length }));
   }
 
-  const pinLift = theme.shape.pawnStyle === 'pin' ? 0 : 2;
-  for (const token of state.tokens) {
+  const isPin = theme.shape.pawnStyle === 'pin';
+  const pinLift = isPin ? 0 : 2;
+  const stackStyle = isPin ? 'pin' : 'default';
+  // Non-playable first, then stack order, playable last (on top + tappable)
+  const drawOrder = [...state.tokens].sort((a, b) => {
+    const pa = playable.has(a.id) ? 1 : 0;
+    const pb = playable.has(b.id) ? 1 : 0;
+    if (pa !== pb) return pa - pb;
+    const sa = stackOf.get(a.id);
+    const sb = stackOf.get(b.id);
+    return (sa?.index ?? 0) - (sb?.index ?? 0);
+  });
+  for (const token of drawOrder) {
     const stack = stackOf.get(token.id);
-    const { x, y } = tokenPixel(token.color, token.slot, token.state, stack);
+    const { x, y } = tokenPixel(
+      token.color,
+      token.slot,
+      token.state,
+      stack,
+      stackStyle,
+    );
     let node = existing.get(token.id) ?? null;
     // Rebuild pin markup when not on current King pin geometry
     if (
       node &&
-      theme.shape.pawnStyle === 'pin' &&
-      node.getAttribute('data-pin') !== 'lk12'
+      isPin &&
+      node.getAttribute('data-pin') !== 'lk14'
     ) {
+      node.remove();
+      existing.delete(token.id);
+      node = null;
+    }
+    // Rebuild if missing hit pad (older DOM)
+    if (node && !node.querySelector('.ludo-sdk__token-hit')) {
       node.remove();
       existing.delete(token.id);
       node = null;
@@ -514,11 +542,6 @@ export function syncTokens(
         moved.push(token.id);
         node.style.transform = next;
       }
-      node.classList.toggle('ludo-sdk__token--playable', playable.has(token.id));
-      node.classList.toggle(
-        'ludo-sdk__token--home',
-        token.state.kind === 'finished',
-      );
       const solid = theme.players[token.color];
       if (theme.shape.pawnStyle === 'pin') {
         node
@@ -534,6 +557,19 @@ export function syncTokens(
           .forEach((el) => el.setAttribute('fill', solid));
       }
     }
+    // Always re-order + refresh interaction classes (new + existing)
+    layer.appendChild(node);
+    const isPlayable = playable.has(token.id);
+    node.classList.toggle('ludo-sdk__token--playable', isPlayable);
+    node.classList.toggle(
+      'ludo-sdk__token--home',
+      token.state.kind === 'finished',
+    );
+    const stacked = (stack?.count ?? 1) > 1;
+    const under = stacked && (stack?.index ?? 0) < (stack?.count ?? 1) - 1;
+    node.classList.toggle('ludo-sdk__token--stacked', stacked);
+    node.classList.toggle('ludo-sdk__token--stack-under', under);
+    node.setAttribute('aria-disabled', isPlayable ? 'false' : 'true');
   }
 
   return { moved, captured: [] };

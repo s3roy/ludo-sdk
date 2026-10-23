@@ -173,7 +173,13 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     const ok = game.move(tokenId);
     if (!ok) return false;
     broadcast({ type: 'play', tokenId });
-    sync(); // silent — clients already applied play
+    const after = game.getState();
+    // Winning move: clients need the `win` event (silent sync skips overlay)
+    if (after.phase === 'finished' && after.lastEvent?.type === 'win') {
+      sync(after.lastEvent);
+    } else {
+      sync(); // silent — clients already applied play
+    }
     return true;
   }
 

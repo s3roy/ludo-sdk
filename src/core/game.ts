@@ -4,7 +4,7 @@ import {
   tokenId,
   tokensToWin,
 } from './constants';
-import { hasWon, listLegalMoves, rollDice } from './moves';
+import { hasWon, listLegalMoves, rollDice, rollDiceUpTo } from './moves';
 import type {
   ColorId,
   EngineOptions,
@@ -45,7 +45,7 @@ function buildTokens(players: PlayerConfig[]): Token[] {
  * - Exact count into home / finish
  * - Safe squares: all starts + star cells — no capture
  * - 2+ same-color tokens on a track cell = block (immune, impassable to others)
- * - Roll 6 → extra roll; 3 sixes in a row → turn forfeited
+ * - Roll 6 → extra roll; a third consecutive 6 in one turn is impossible (P=0)
  * - Capture or finish a token → extra roll
  * - First to tokensToWin (classic 4 / rush 2) wins
  */
@@ -91,33 +91,31 @@ export class LudoGame {
     return listLegalMoves(this.state);
   }
 
-  /** Local RNG roll. */
+  /** Local RNG roll. After two sixes this turn, only 1–5 (third 6 has P=0). */
   roll(): number | null {
     if (this.state.phase !== 'waiting_roll') return null;
-    return this.applyDice(rollDice(this.rng));
+    const face =
+      this.state.consecutiveSixes >= 2
+        ? rollDiceUpTo(5, this.rng)
+        : rollDice(this.rng);
+    return this.applyDice(face);
   }
 
   /**
    * Apply a server-authored dice value (1–6).
    * Use from backend sync so all clients share the same roll.
+   * A third consecutive 6 in the same turn is rejected (P=0).
    */
   applyDice(value: number): number | null {
     if (this.state.phase !== 'waiting_roll') return null;
     if (!Number.isInteger(value) || value < 1 || value > 6) return null;
+    if (value === 6 && this.state.consecutiveSixes >= 2) return null;
 
     this.state.dice = value;
     this.emit({ type: 'roll', color: this.state.currentColor, value });
 
     if (value === 6) {
       this.state.consecutiveSixes += 1;
-      if (this.state.consecutiveSixes >= 3) {
-        this.state.consecutiveSixes = 0;
-        this.state.dice = null;
-        this.state.phase = 'waiting_roll';
-        this.emit({ type: 'no_moves', color: this.state.currentColor });
-        this.advanceTurn();
-        return value;
-      }
     } else {
       this.state.consecutiveSixes = 0;
     }

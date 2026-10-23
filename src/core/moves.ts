@@ -94,6 +94,19 @@ export function hasWon(state: GameState, color: ColorId, mode: GameMode): boolea
   return countFinished(state, color) >= tokensToWin(mode);
 }
 
+/** Fair d6. */
 export function rollDice(rng: () => number = Math.random): number {
   return 1 + Math.floor(rng() * 6);
+}
+
+/**
+ * Roll a face in `1..maxFace` (inclusive).
+ * Used to forbid a third consecutive 6 in one turn (maxFace = 5).
+ */
+export function rollDiceUpTo(
+  maxFace: number,
+  rng: () => number = Math.random,
+): number {
+  const hi = Math.max(1, Math.min(6, Math.floor(maxFace)));
+  return 1 + Math.floor(rng() * hi);
 }

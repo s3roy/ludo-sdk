@@ -1,6 +1,6 @@
 # @ludorush/sdk
 
-Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, queue matchmaking, and host-authoritative multiplayer.
+Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, and host-authoritative multiplayer.
 
 ### [▶ Play in the browser](https://s3roy.github.io/ludo-sdk/)
 
@@ -27,10 +27,9 @@ mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }), {
 - **Board facing** — your seat always bottom-left (`boardFacing` / `mountHostedLudo`)
 - **AI** — easy / normal / hard / **extreme** (expectiminimax)
 - **Themes** — `king` · `rush` · `felt` · `neon` · `ivory` · `midnight`
-- **Queue matchmaking** — `createLudoMatchmaker` (no player host; backend forms rooms)
-- **Lobby + policies** — turn clock, auto/skip on miss, `maxAutoTurns`, leave → AI
+- **Backend-owned rooms** — you decide who plays → `lobby.createMatch({ players })`
+- **Policies** — turn clock, auto/skip on miss, `maxAutoTurns`, leave → AI
 - **Hosted client** — `mountHostedLudo` (UI + intents only)
-- **2–4 seats** — public pools or named table tokens
 - **Lifecycle callbacks** — `onTurn` / `onMissTurn` / `onWin` / `onDestroy` / …
 
 ## Modes
@@ -59,47 +58,39 @@ const game = mountLudoRoom('#board', offlineRoom({
 game.destroy()
 ```
 
-## Matchmaking (recommended multiplayer)
+## Multiplayer (recommended)
 
-No first-joiner host. Players press **Play**; your backend queues them and creates the room when seats fill (or on timeout + AI fill).
+**Matchmaking stays in your backend.** Pick the users however you like (queue, party, Elo), then hand them to the SDK:
 
 ```ts
-import { createLudoMatchmaker } from '@ludorush/sdk'
+import { createLudoLobby, mountHostedLudo } from '@ludorush/sdk'
 
-const mm = createLudoMatchmaker({
+const lobby = createLudoLobby({
   broadcast: (roomId, cmd) => io.to(roomId).emit('ludo', cmd),
-  notify: (playerId, msg) => io.to(playerId).emit('mm', msg),
-  defaults: {
-    seats: 4,
-    fillAi: true,
-    queueTimeoutMs: 30_000,
-    policy: {
-      turnDurationMs: 15_000,
-      onTurnTimeout: 'auto', // or 'skip'
-      maxAutoTurns: 3,       // consecutive misses → seat becomes AI
-      onLeave: 'convert_ai',
-    },
-  },
-  onTurn: (roomId, color, state) => {},
-  onMissTurn: (roomId, color, streak, action, state) => {},
-  onSeatConverted: (roomId, color, reason) => {},
   onWin: (roomId, winner) => {},
+  onTurn: (roomId, color) => {},
 })
 
-// Named table (optional token)
-mm.openTable({
-  token: 'vip',
-  seats: 2,
-  policy: { turnDurationMs: 12_000, maxAutoTurns: 2 },
+// You already decided Ada + Bob (+ AI fill)
+const match = lobby.createMatch({
+  players: [
+    { playerId: 'u1', name: 'Ada' },
+    { playerId: 'u2', name: 'Bob' },
+  ],
+  maxPlayers: 4,       // empty seats → AI
+  mode: 'rush',
+  policy: {
+    turnDurationMs: 15_000,
+    onTurnTimeout: 'auto', // or 'skip'
+    maxAutoTurns: 3,
+    onLeave: 'convert_ai',
+  },
 })
+if (!match.ok) throw new Error(match.error)
 
-// Client pressed Play
-const result = mm.play({ playerId, name: 'Ada', token: 'vip' })
-// → { status: 'queued', … } | { status: 'matched', roomId, color, … }
-
-mm.action(roomId, playerId, intent)
-mm.leave(roomId, playerId)
-mm.destroy(roomId) // backend only
+lobby.action(match.roomId, 'u1', intent)
+lobby.leave(match.roomId, 'u1')
+lobby.destroy(match.roomId) // backend only
 ```
 
 ### Client (hosted UI)
@@ -109,9 +100,9 @@ import { mountHostedLudo } from '@ludorush/sdk'
 import '@ludorush/sdk/style.css'
 
 const ui = mountHostedLudo('#board', {
-  roomId,
-  myColor,          // board rotates so this yard is bottom-left
-  seats,
+  roomId: match.roomId,
+  myColor: match.seats['u1'], // board rotates so this yard is bottom-left
+  seats: match.config.seats,
   theme: 'king',
   transport: {
     send: (action) => socket.emit('action', action),
@@ -123,7 +114,7 @@ const ui = mountHostedLudo('#board', {
 })
 ```
 
-### Room policy (set at table / room creation)
+### Room policy (set at match creation)
 
 | Field | Default | Meaning |
 |-------|---------|---------|
@@ -132,29 +123,18 @@ const ui = mountHostedLudo('#board', {
 | `maxAutoTurns` | `3` | Miss streak before seat → AI (`0` = never) |
 | `onLeave` | `'convert_ai'` | `'convert_ai'` · `'forfeit'` · `'destroy_if_empty'` |
 
-Reference FE+BE harness (sibling folder in the monorepo): `tools/ludo-demo` — Play queue, WS protocol, `npm run e2e`.
-
-## Low-level hosted rooms
+### Low-level (create → join → start)
 
 ```ts
-import { createLudoLobby, mountHostedLudo } from '@ludorush/sdk'
-
-const lobby = createLudoLobby({
-  broadcast: (roomId, cmd) => io.to(roomId).emit('ludo', cmd),
-})
-
-const { roomId } = lobby.createRoom({
-  mode: 'rush',
-  maxPlayers: 4,
-  fillAi: true,
-  policy: { turnDurationMs: 15_000, onTurnTimeout: 'auto', maxAutoTurns: 3 },
-})
+const { roomId } = lobby.createRoom({ mode: 'rush', maxPlayers: 4, fillAi: true })
 lobby.join(roomId, { playerId: 'u1', name: 'Ada' })
+lobby.join(roomId, { playerId: 'u2', name: 'Bob' })
 lobby.start(roomId)
-lobby.action(roomId, 'u1', { type: 'roll', roomId, color: 0 })
 ```
 
-Prefer **`createLudoMatchmaker`** for product integrations; use **`createLudoLobby`** when you already have matchmaking.
+### Optional demo queue
+
+`createLudoMatchmaker` is a thin in-process Play queue for prototypes. Prefer your own matchmaker + `createMatch`. See `tools/ludo-demo` in the monorepo.
 
 Step-by-step contracts: **[DOCS.md](./DOCS.md)**.
 
@@ -178,36 +158,6 @@ npm run preview                    # local check of that build
 
 Query params (optional): `?mode=rush&players=4&ai=extreme&theme=king&room=ABC123`
 
-## Develop
-
-```bash
-git clone https://github.com/s3roy/ludo-sdk.git
-cd ludo-sdk
-npm i
-npm run dev          # playground → http://localhost:5195
-npm test             # typecheck + smoke + bots + e2e
-npm run build:sdk    # dist/ + style.css
-```
-
-| Script | What |
-|--------|------|
-| `npm run dev` | Vite playground |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run smoke` | Rule assertions + short playthroughs |
-| `npm run test:bots` | Full AI games |
-| `npm run test:e2e` | Path / seats / AI gates (~2k asserts) |
-| `npm run build:sdk` | Library build |
-| `npm run build:web` | Static play site (`dist-playground/`) |
-
-## Package exports
-
-```json
-{
-  ".": { "import": "./dist/ludo-sdk.js", "types": "./dist/index.d.ts" },
-  "./style.css": "./dist/ludo-sdk.css"
-}
-```
-
 ## License
 
-[MIT](./LICENSE) © 2026 Ludo Rush SDK contributors
+MIT — see [LICENSE](./LICENSE).

@@ -1,5 +1,11 @@
 export { createGame, LudoGame } from './core/game';
-export { listLegalMoves, rollDice, countFinished, hasWon } from './core/moves';
+export {
+  listLegalMoves,
+  rollDice,
+  rollDiceUpTo,
+  countFinished,
+  hasWon,
+} from './core/moves';
 export {
   advanceToken,
   enterBoard,
@@ -104,12 +110,15 @@ export {
 
 export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';
 
-/** Server lobby — authoritative rooms (no player host). */
+/** Server lobby — you pick players, SDK runs the room. */
 export {
   createLudoLobby,
   type LudoLobby,
   type LudoLobbyOptions,
   type CreateLobbyRoomInput,
+  type CreateMatchInput,
+  type CreateMatchPlayer,
+  type CreateMatchOk,
   type LobbyPlayer,
   type LobbyRoomStatus,
   type JoinOk,
@@ -119,7 +128,10 @@ export {
   type NormalizedRoomPolicy,
 } from './server/lobby';
 
-/** Queue matchmaker — Play → wait → assign room. */
+/**
+ * Optional in-process queue helper for demos.
+ * Prefer matching users in your backend, then `lobby.createMatch({ players })`.
+ */
 export {
   createLudoMatchmaker,
   type LudoMatchmaker,

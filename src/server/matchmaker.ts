@@ -1,11 +1,13 @@
 /**
- * Queue matchmaker — no player host.
+ * Optional in-process Play queue (demos / prototypes).
  *
- * Integrator flow:
+ * Production apps usually match users in their own backend, then call
+ * `createLudoLobby().createMatch({ players })` with the chosen seats.
+ *
+ * Demo flow:
  * 1. `openTable({ token, seats, policy… })` (optional named pool)
  * 2. Client presses Play → `play({ playerId, name, token? })`
  * 3. When enough players (or queue timeout + fillAi) → room created + started
- * 4. `action` / `leave` / callbacks for turn / miss / win
  */
 import type { AiDifficulty } from '../core/ai';
 import type { ColorId, GameEvent, GameMode, GameState } from '../core/types';

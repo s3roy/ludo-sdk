@@ -339,38 +339,63 @@ export function mountLudo(
     }
   }
 
+  let winShownFor: ColorId | null = null;
+
   function hideWinOverlay() {
     winEl.hidden = true;
     winEl.classList.remove('ludo-sdk__win--show');
+    winShownFor = null;
   }
 
-  function showWinOverlay(winner: ColorId, ranking: ColorId[], state: GameState) {
-    if (opts.hideWinOverlay) return;
+  function showWinOverlay(
+    winner: ColorId,
+    ranking: ColorId[],
+    state: GameState,
+  ): boolean {
+    if (opts.hideWinOverlay) return false;
+    if (winShownFor === winner && !winEl.hidden) return false;
+    winShownFor = winner;
     const name = COLOR_NAMES[winner];
     const titleName = name[0]!.toUpperCase() + name.slice(1);
-    winTitle.textContent = `${titleName} wins!`;
+    const winnerPlayer = state.players.find((p) => p.color === winner);
+    const displayName = winnerPlayer?.name?.trim() || titleName;
+    winTitle.textContent = `${displayName} wins!`;
     const mine = canControl(winner);
     winSub.textContent = mine ? 'Victory' : 'Match over';
-    winRanking.innerHTML = ranking
+    const ranks =
+      ranking.length > 0
+        ? ranking
+        : ([
+            winner,
+            ...state.players.map((p) => p.color).filter((c) => c !== winner),
+          ] as ColorId[]);
+    winRanking.innerHTML = ranks
       .map((c, i) => {
+        const p = state.players.find((x) => x.color === c);
         const n = COLOR_NAMES[c];
-        const label = n[0]!.toUpperCase() + n.slice(1);
+        const label = p?.name?.trim() || n[0]!.toUpperCase() + n.slice(1);
         const you = canControl(c) ? ' · you' : '';
         return `<li class="ludo-sdk__win-rank ludo-sdk__win-rank--c${c}">
           <span class="ludo-sdk__win-place">#${i + 1}</span>
+          <span class="ludo-sdk__win-swatch" aria-hidden="true"></span>
           <span class="ludo-sdk__win-name">${label}${you}</span>
         </li>`;
       })
       .join('');
-    // Hosted rooms: rematch is a host concern — still show button for offline
-    rematchBtn.hidden = !!opts.controlled && !opts.onRematch;
+    // Offline: Play again. Hosted without onRematch: dismiss only.
+    const canRematch = !opts.controlled || !!opts.onRematch;
+    rematchBtn.hidden = false;
+    rematchBtn.textContent = canRematch ? 'Play again' : 'OK';
+    rematchBtn.dataset.mode = canRematch ? 'rematch' : 'dismiss';
     winEl.hidden = false;
     requestAnimationFrame(() => winEl.classList.add('ludo-sdk__win--show'));
-    void state;
+    return true;
   }
 
   rematchBtn.addEventListener('click', () => {
+    const mode = rematchBtn.dataset.mode ?? 'rematch';
     hideWinOverlay();
+    if (mode === 'dismiss') return;
     if (opts.onRematch) {
       opts.onRematch();
       return;
@@ -814,111 +839,132 @@ export function mountLudo(
   async function handleUpdate(state: GameState, event: GameEvent | null) {
     if (destroyed) return;
     ensureBoard();
+    try {
+      if (event?.type === 'roll') {
+        busy = true;
+        syncTimerPauseForBusy();
+        sounds.play('roll');
+        await animateDiceRoll(diceHost, event.value, ROLL_MS);
+        if (destroyed) return;
+        lastDiceFace = event.value;
+        sounds.play('land');
+        if (event.value === 6) sounds.play('six');
+      } else if (state.dice != null) {
+        setDice(state.dice, false);
+      } else {
+        // Waiting to roll — keep showing last face (or 1)
+        setDice(lastDiceFace, false);
+      }
 
-    if (event?.type === 'roll') {
-      busy = true;
-      syncTimerPauseForBusy();
-      sounds.play('roll');
-      await animateDiceRoll(diceHost, event.value, ROLL_MS);
-      if (destroyed) return;
-      lastDiceFace = event.value;
-      sounds.play('land');
-      if (event.value === 6) sounds.play('six');
-    } else if (state.dice != null) {
-      setDice(state.dice, false);
-    } else {
-      // Waiting to roll — keep showing last face (or 1)
-      setDice(lastDiceFace, false);
-    }
+      // Capture is applied in engine before `move` — defer victim visuals to path anim
+      if (event?.type === 'capture') {
+        showToast('Captured!');
+        opts.onCapture?.(event.by, event.victimTokenId, state);
+        if (event) opts.onEvent?.(event, state);
+        opts.onChange?.(state);
+        return;
+      }
 
-    // Capture is applied in engine before `move` — defer victim visuals to path anim
-    if (event?.type === 'capture') {
-      showToast('Captured!');
-      opts.onCapture?.(event.by, event.victimTokenId, state);
+      if (event?.type === 'roll') {
+        opts.onRoll?.(event.color, event.value, state);
+      }
+
+      if (event?.type === 'extra_turn') {
+        showToast(
+          event.reason === 'six'
+            ? 'Six!'
+            : event.reason === 'capture'
+              ? 'Extra turn'
+              : 'Home!',
+        );
+        if (event.reason === 'six') sounds.play('six');
+      }
+      if (event?.type === 'win') {
+        const shown = showWinOverlay(event.color, event.ranking, state);
+        if (shown) {
+          showToast(`${COLOR_NAMES[event.color]} wins`);
+          sounds.play('win');
+          opts.onWin?.({
+            winner: event.color,
+            ranking: event.ranking,
+            state,
+          } satisfies WinContext);
+        }
+      } else if (
+        state.phase === 'finished' &&
+        state.winner != null &&
+        winShownFor !== state.winner
+      ) {
+        // Catch-up sync / late join — still show winner UI
+        const shown = showWinOverlay(state.winner, state.ranking, state);
+        if (shown) {
+          sounds.play('win');
+          opts.onWin?.({
+            winner: state.winner,
+            ranking: state.ranking,
+            state,
+          } satisfies WinContext);
+        }
+      }
+      if (event?.type === 'turn') {
+        sounds.play('turn');
+        emitTurnCallbacks(state);
+      }
+      if (event?.type === 'no_moves') sounds.play('nomove');
+      if (event?.type === 'presence') {
+        /* presence sync already notifies via setSeatPresence path */
+      }
+
+      if (event?.type === 'move') {
+        busy = true;
+        syncTimerPauseForBusy();
+        paintChrome(state);
+        // Place tokens at post-move state, then walk the mover cell-by-cell
+        syncTokens(tokensLayer(), state, [], theme);
+        const tok = state.tokens.find((t) => t.id === event.tokenId);
+        const slot = tok?.slot ?? 0;
+        await animateLegalMove(
+          tokensLayer(),
+          event.color,
+          slot,
+          event.move,
+          state.tokens,
+          {
+            onStep: (step) => {
+              if (step === 1) {
+                if (event.move.entersBoard) sounds.play('enter');
+                else sounds.play('move');
+              }
+            },
+            onCapture: (x, y) => {
+              flashCapture(fxLayer(), x, y);
+              sounds.play('capture');
+            },
+          },
+        );
+        if (destroyed) return;
+        if (event.move.finishes) sounds.play('finish');
+        opts.onMove?.(event.color, event.tokenId, state, event);
+        paint(state, event);
+      } else {
+        paint(state, event);
+      }
+
       if (event) opts.onEvent?.(event, state);
       opts.onChange?.(state);
-      return;
-    }
+      emitLegalMovesIfNeeded(game.getState());
 
-    if (event?.type === 'roll') {
-      opts.onRoll?.(event.color, event.value, state);
+      const next = game.getState();
+      scheduleAi(next);
+      scheduleAbsent(next);
+      scheduleTurnTimer(next);
+    } finally {
+      // Never leave the board stuck unable to tap after anim / errors
+      if (!destroyed) {
+        busy = false;
+        syncTimerPauseForBusy();
+      }
     }
-
-    if (event?.type === 'extra_turn') {
-      showToast(
-        event.reason === 'six'
-          ? 'Six!'
-          : event.reason === 'capture'
-            ? 'Extra turn'
-            : 'Home!',
-      );
-      if (event.reason === 'six') sounds.play('six');
-    }
-    if (event?.type === 'win') {
-      showToast(`${COLOR_NAMES[event.color]} wins`);
-      sounds.play('win');
-      showWinOverlay(event.color, event.ranking, state);
-      const winCtx: WinContext = {
-        winner: event.color,
-        ranking: event.ranking,
-        state,
-      };
-      opts.onWin?.(winCtx);
-    }
-    if (event?.type === 'turn') {
-      sounds.play('turn');
-      emitTurnCallbacks(state);
-    }
-    if (event?.type === 'no_moves') sounds.play('nomove');
-    if (event?.type === 'presence') {
-      /* presence sync already notifies via setSeatPresence path */
-    }
-
-    if (event?.type === 'move') {
-      busy = true;
-      syncTimerPauseForBusy();
-      paintChrome(state);
-      // Place tokens at post-move state, then walk the mover cell-by-cell
-      syncTokens(tokensLayer(), state, [], theme);
-      const tok = state.tokens.find((t) => t.id === event.tokenId);
-      const slot = tok?.slot ?? 0;
-      await animateLegalMove(
-        tokensLayer(),
-        event.color,
-        slot,
-        event.move,
-        state.tokens,
-        {
-          onStep: (step) => {
-            if (step === 1) {
-              if (event.move.entersBoard) sounds.play('enter');
-              else sounds.play('move');
-            }
-          },
-          onCapture: (x, y) => {
-            flashCapture(fxLayer(), x, y);
-            sounds.play('capture');
-          },
-        },
-      );
-      if (destroyed) return;
-      if (event.move.finishes) sounds.play('finish');
-      opts.onMove?.(event.color, event.tokenId, state, event);
-      paint(state, event);
-    } else {
-      paint(state, event);
-    }
-
-    if (event) opts.onEvent?.(event, state);
-    opts.onChange?.(state);
-    emitLegalMovesIfNeeded(game.getState());
-
-    busy = false;
-    syncTimerPauseForBusy();
-    const next = game.getState();
-    scheduleAi(next);
-    scheduleAbsent(next);
-    scheduleTurnTimer(next);
   }
 
   function paintChrome(state: GameState) {
@@ -1000,11 +1046,16 @@ export function mountLudo(
     tokensLayer()
       .querySelectorAll<SVGGElement>('[data-token-id]')
       .forEach((node) => {
-        node.onclick = () => {
+        node.style.touchAction = 'manipulation';
+        node.onpointerup = (e: PointerEvent) => {
+          if (e.button != null && e.button !== 0) return;
+          e.stopPropagation();
+          if (!node.classList.contains('ludo-sdk__token--playable')) return;
           const id = node.getAttribute('data-token-id');
           if (!id || busy) return;
           void requestMove(id);
         };
+        node.onclick = null;
       });
   }
 

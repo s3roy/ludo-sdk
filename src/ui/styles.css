@@ -255,6 +255,8 @@
   transform-box: fill-box;
   transform-origin: center bottom;
   transition: none;
+  /* Non-playable never steal taps from a buried playable pin */
+  pointer-events: none;
 }
 
 .ludo-sdk__token-label {
@@ -266,6 +268,7 @@
 
 .ludo-sdk__token--playable {
   cursor: pointer;
+  pointer-events: auto;
 }
 
 /* Always-visible red foot under every pin/pawn */
@@ -273,9 +276,45 @@
   pointer-events: none;
 }
 
+/* CSS transforms on tokens can flip SVG paint order vs board-base —
+   keep seats/foot under pins with explicit stacking. */
+.ludo-sdk__board-base {
+  position: relative;
+  z-index: 0;
+  transform: translateZ(0);
+}
+.ludo-sdk__tokens {
+  position: relative;
+  z-index: 2;
+  transform: translateZ(0);
+}
+.ludo-sdk__fx {
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+.ludo-sdk__pin-base {
+  z-index: 0;
+  pointer-events: none;
+}
+.ludo-sdk__pin-figure {
+  z-index: 1;
+  pointer-events: none;
+}
+
 .ludo-sdk__token-ring {
   opacity: 0;
   pointer-events: none;
+}
+
+.ludo-sdk__token-hit {
+  pointer-events: none;
+  fill: transparent;
+}
+
+.ludo-sdk__token--playable .ludo-sdk__token-hit {
+  pointer-events: all;
 }
 
 .ludo-sdk__token--playable .ludo-sdk__token-ring {
@@ -765,6 +804,19 @@
   color: var(--text-muted);
   min-width: 1.6em;
 }
+
+.ludo-sdk__win-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+.ludo-sdk__win-rank--c0 .ludo-sdk__win-swatch { background: var(--player-red); }
+.ludo-sdk__win-rank--c1 .ludo-sdk__win-swatch { background: var(--player-green); }
+.ludo-sdk__win-rank--c2 .ludo-sdk__win-swatch { background: var(--player-yellow); }
+.ludo-sdk__win-rank--c3 .ludo-sdk__win-swatch { background: var(--player-blue); }
 
 .ludo-sdk__win-name {
   color: var(--text-primary);
@@ -1293,6 +1345,53 @@
 .ludo-sdk--theme-king .ludo-sdk__pawn--pin .ludo-sdk__token-body {
   filter: none;
 }
+.ludo-sdk--theme-king .ludo-sdk__pin-base {
+  z-index: 0;
+}
+.ludo-sdk--theme-king .ludo-sdk__pin-figure {
+  z-index: 2;
+}
+
+/* Winner overlay — above HUDs, King gold card */
+.ludo-sdk--theme-king .ludo-sdk__win {
+  z-index: 60;
+  background: rgba(8, 18, 48, 0.72);
+  backdrop-filter: blur(8px);
+}
+.ludo-sdk--theme-king .ludo-sdk__win-card {
+  width: min(300px, 92%);
+  padding: 24px 20px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #1e3a6e 0%, #152a55 100%);
+  border: 2.5px solid #e8c84a;
+  box-shadow:
+    0 0 0 3px rgba(15, 35, 78, 0.9),
+    0 20px 40px rgba(0, 0, 0, 0.55);
+}
+.ludo-sdk--theme-king .ludo-sdk__win-emoji {
+  font-size: 2.6rem;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+}
+.ludo-sdk--theme-king .ludo-sdk__win-title {
+  font-size: 1.45rem;
+  color: #ffffff;
+}
+.ludo-sdk--theme-king .ludo-sdk__win-sub {
+  color: #e8c84a;
+}
+.ludo-sdk--theme-king .ludo-sdk__win-rank {
+  background: rgba(8, 18, 48, 0.55);
+  border-color: rgba(232, 200, 74, 0.28);
+  border-radius: 10px;
+}
+.ludo-sdk--theme-king .ludo-sdk__win-rematch {
+  background: linear-gradient(180deg, #ffc107 0%, #ff9800 100%);
+  color: #0f234e;
+  border: none;
+  font-weight: 900;
+  border-radius: 12px;
+  box-shadow: 0 3px 0 #e68900;
+}
 .ludo-sdk--theme-king .ludo-sdk__pin-foot {
   fill: none;
   stroke: #6b1f2a;
@@ -1303,10 +1402,16 @@
 }
 .ludo-sdk--theme-king .ludo-sdk__token--playable .ludo-sdk__token-ring {
   opacity: 1;
-  stroke: #ffffff;
-  stroke-width: 2.4px;
-  filter: none;
-  animation-duration: 2.6s;
+  stroke: #ffc107;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 2.5px rgba(255, 193, 7, 0.95));
+  animation-duration: 2.2s;
+}
+.ludo-sdk--theme-king .ludo-sdk__token--playable {
+  z-index: 5;
+}
+.ludo-sdk--theme-king .ludo-sdk__token--stacked.ludo-sdk__token--stack-under .ludo-sdk__pin-foot {
+  opacity: 0.55;
 }
 
 /* Non-king: stage is just a board wrapper; dice stays in controls */

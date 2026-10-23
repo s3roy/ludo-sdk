@@ -1,6 +1,28 @@
 # @ludorush/sdk — production guide
 
-Self-hosted Ludo: **your backend owns the room**; this SDK is the rules engine + embeddable board + lifecycle callbacks.
+Self-hosted Ludo: **your backend owns matchmaking and the room**; this SDK is the rules engine + embeddable board + lifecycle callbacks.
+
+Match users however you want (queue, party, Elo), then:
+
+```ts
+import { createLudoLobby } from '@ludorush/sdk'
+
+const lobby = createLudoLobby({
+  broadcast: (roomId, cmd) => io.to(roomId).emit('ludo', cmd),
+})
+
+const match = lobby.createMatch({
+  players: [
+    { playerId: 'u1', name: 'Ada' },
+    { playerId: 'u2', name: 'Bob' },
+  ],
+  maxPlayers: 4, // remaining seats → AI
+  mode: 'rush',
+  policy: { turnDurationMs: 15_000, onTurnTimeout: 'auto', maxAutoTurns: 3 },
+})
+```
+
+`createLudoMatchmaker` is an optional in-process Play queue for demos — prefer your own matcher + `createMatch`.
 
 ```
 ┌─────────────┐     create room / seats      ┌──────────────┐
@@ -260,7 +282,8 @@ ui.dispatch({ type: 'destroy', reason: 'host' })
 ```
 
 After `{dice|play}`, the host also sends a **silent** `{sync}` (no `event`) so clients
-align without replaying animations. `syncState(state)` is silent; `syncState(state, event)` emits.
+align without replaying animations — except a **winning move**, which syncs with the `win`
+event so the winner overlay shows. `syncState(state)` is silent; `syncState(state, event)` emits.
 In `controlled` rooms, timer/absent skip send `{ type: 'forfeit' }` via `onAction` — never local forfeit.
 
 `onAction` return values:
