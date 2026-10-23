@@ -101,6 +101,11 @@
         justify-content: center;
         padding: 4px 0;
         min-height: 320px;
+        width: 100%;
+      }
+      #stage .ludo-sdk--theme-king {
+        max-width: 100%;
+        width: 100%;
       }
       #mount:empty::before {
         content: "Generating board…";
@@ -221,8 +226,8 @@
           <label for="mode">Mode</label>
           <select id="mode">
             <option value="classic">Classic · open on 6 · win with 4</option>
-            <option value="rush" selected>Rush · open any · win with 2</option>
-            <option value="blitz">Blitz · open any · win with 1</option>
+            <option value="rush" selected>Rush · open on 6 · win with 2</option>
+            <option value="blitz">Blitz · open on 6 · win with 1</option>
           </select>
         </div>
         <div class="field">
@@ -245,7 +250,8 @@
         <div class="field">
           <label for="theme">Theme</label>
           <select id="theme">
-            <option value="rush" selected>Rush · navy sport</option>
+            <option value="king" selected>King · Ludo King (exact)</option>
+            <option value="rush">Rush · navy sport</option>
             <option value="felt">Felt · green table</option>
             <option value="neon">Neon · cyber</option>
             <option value="ivory">Ivory · classic board</option>

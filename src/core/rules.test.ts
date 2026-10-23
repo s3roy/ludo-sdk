@@ -181,7 +181,7 @@ export function runRuleTests() {
     assert(d6.some((m) => m.entersBoard), 'classic: enter on 6');
   }
 
-  // Rush: any roll opens
+  // Rush / Blitz: also only 6 opens (win count differs)
   {
     const st = createGame({ mode: 'rush', players: fourAi }).getState();
     const d1 = listLegalMoves({
@@ -190,7 +190,22 @@ export function runRuleTests() {
       dice: 1,
       currentColor: 0,
     });
-    assert(d1.some((m) => m.entersBoard), 'rush: enter on 1');
+    assert(d1.every((m) => !m.entersBoard), 'rush: no enter on 1');
+    const d6 = listLegalMoves({
+      ...st,
+      phase: 'waiting_move',
+      dice: 6,
+      currentColor: 0,
+    });
+    assert(d6.some((m) => m.entersBoard), 'rush: enter on 6');
+    const blitz = createGame({ mode: 'blitz', players: fourAi }).getState();
+    const b3 = listLegalMoves({
+      ...blitz,
+      phase: 'waiting_move',
+      dice: 3,
+      currentColor: 0,
+    });
+    assert(b3.every((m) => !m.entersBoard), 'blitz: no enter on 3');
   }
 
   // Three sixes forfeit

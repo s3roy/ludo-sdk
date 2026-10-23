@@ -24,6 +24,11 @@ import {
   syncTokens,
 } from '../ui/render';
 import {
+  BOARD_CORNERS,
+  boardRotationDeg,
+  visualCornerForColor,
+} from '../ui/boardFacing';
+import {
   applyThemeToElement,
   getTheme,
   type LudoThemeId,
@@ -55,6 +60,7 @@ import {
   type AbsentSeatConfig,
 } from './presence';
 import {
+  hudTimerRingMarkup,
   normalizeTurnTimer,
   setTimerRingProgress,
   timerAppliesToSeat,
@@ -121,6 +127,11 @@ export type LudoMountOptions = LudoLifecycleCallbacks & {
   absentSeat?: AbsentSeatConfig;
   /** Visual theme (client-only cosmetics). */
   theme?: LudoThemeId | string;
+  /**
+   * Rotate the board so this color’s yard is always bottom-left (Ludo King).
+   * Default: first interactive color. Pass `false` to keep red fixed at BL.
+   */
+  boardFacing?: ColorId | false;
   onEvent?: (event: GameEvent, state: GameState) => void;
   /** @deprecated Prefer `onPresenceChange`. */
   onPresence?: (
@@ -178,6 +189,8 @@ export type LudoHandle = {
   setInteractiveColors: (colors: ColorId[]) => void;
   setTheme: (theme: LudoThemeId | string) => void;
   getTheme: () => ThemePalette;
+  /** Rotate board so this color is bottom-left (`false` = red fixed). */
+  setBoardFacing: (color: ColorId | false) => void;
   /** Merge / replace timer settings (`false` disables). */
   setTurnTimer: (cfg: TurnTimerConfig | false) => void;
   pauseTurnTimer: () => void;
@@ -301,6 +314,7 @@ export function mountLudo(
   const statusEl = root.querySelector<HTMLElement>('[data-ludo-status]')!;
   const diceHost = root.querySelector<HTMLElement>('[data-ludo-dice-host]')!;
   const diceWrap = root.querySelector<HTMLElement>('[data-ludo-dice-wrap]')!;
+  const controlsEl = root.querySelector<HTMLElement>('[data-ludo-controls]')!;
   const playersEl = root.querySelector<HTMLElement>('[data-ludo-players]');
   const rollBtn = root.querySelector<HTMLButtonElement>('[data-ludo-roll]')!;
   const soundBtn = root.querySelector<HTMLButtonElement>('[data-ludo-sound]')!;
@@ -310,6 +324,20 @@ export function mountLudo(
   const winSub = root.querySelector<HTMLElement>('[data-ludo-win-sub]')!;
   const winRanking = root.querySelector<HTMLOListElement>('[data-ludo-win-ranking]')!;
   const rematchBtn = root.querySelector<HTMLButtonElement>('[data-ludo-rematch]')!;
+
+  /** King: dice lives inside the active HUD tray. Other themes: always in controls. */
+  function placeDiceDock(turnColor: ColorId) {
+    if (theme.id === 'king') {
+      const tray = root.querySelector<HTMLElement>(
+        `[data-ludo-hud-tray="${turnColor}"]`,
+      );
+      if (tray && diceWrap.parentElement !== tray) tray.appendChild(diceWrap);
+      return;
+    }
+    if (diceWrap.parentElement !== controlsEl) {
+      controlsEl.insertBefore(diceWrap, rollBtn);
+    }
+  }
 
   function hideWinOverlay() {
     winEl.hidden = true;
@@ -364,12 +392,43 @@ export function mountLudo(
   };
   root.addEventListener('pointerdown', unlockOnce);
 
+  function facingColor(): ColorId {
+    if (opts.boardFacing === false) return 0;
+    if (typeof opts.boardFacing === 'number') return opts.boardFacing;
+    const first = interactive.values().next().value;
+    return (first ?? 0) as ColorId;
+  }
+
+  /** Keep the local seat at bottom-left; remap King HUD corners to match. */
+  function applyBoardFacing() {
+    const facing = facingColor();
+    const svg = boardWrap.querySelector<SVGSVGElement>('svg.ludo-sdk__board');
+    if (svg) {
+      svg.style.transformOrigin = '50% 50%';
+      svg.style.transform = `rotate(${boardRotationDeg(facing)}deg)`;
+      svg.dataset.facing = String(facing);
+    }
+    boardWrap.dataset.facing = String(facing);
+    for (let c = 0; c < 4; c++) {
+      const color = c as ColorId;
+      const hud = root.querySelector<HTMLElement>(`[data-ludo-hud="${color}"]`);
+      if (!hud) continue;
+      for (const corner of BOARD_CORNERS) {
+        hud.classList.remove(`ludo-sdk__hud--${corner}`);
+      }
+      hud.classList.add(
+        `ludo-sdk__hud--${visualCornerForColor(color, facing)}`,
+      );
+    }
+  }
+
   function ensureBoard() {
     if (boardReady) return;
     boardWrap.innerHTML =
-      renderBoardBase(theme) +
+      renderBoardBase(theme, { facingColor: facingColor() }) +
       `<div class="ludo-sdk__toast" data-ludo-toast></div>`;
     boardReady = true;
+    applyBoardFacing();
   }
 
   function tokensLayer() {
@@ -391,8 +450,14 @@ export function mountLudo(
     t.classList.add('ludo-sdk__toast--show');
   }
 
+  /** Last landed face — shown while waiting to roll (default 1). */
+  let lastDiceFace = 1;
+
   function setDice(value: number | null, rolling = false) {
-    diceHost.innerHTML = diceFaceHtml(value, rolling);
+    if (value != null && value >= 1 && value <= 6) lastDiceFace = value;
+    // Always show a pip face: current roll, else last roll, else 1
+    const show = value != null && value >= 1 ? value : lastDiceFace;
+    diceHost.innerHTML = diceFaceHtml(show, rolling);
   }
 
   function canControl(color: ColorId) {
@@ -567,12 +632,27 @@ export function mountLudo(
   }
 
   function paintTimerRing() {
-    if (!timerCfg.showRing || !timerCfg.enabled || !timerStartedAt) {
+    const active =
+      !!timerCfg.showRing && !!timerCfg.enabled && !!timerStartedAt;
+    const ratio = active ? timerRemainingMs() / timerDuration : 0;
+
+    if (theme.id === 'king') {
+      // King: ring wraps the outer HUD card — never the die.
       setTimerRingProgress(diceWrap, 0, false);
+      for (const c of [0, 1, 2, 3] as ColorId[]) {
+        const shell = root.querySelector<HTMLElement>(
+          `[data-ludo-hud="${c}"] .ludo-sdk__hud-shell`,
+        );
+        setTimerRingProgress(
+          shell,
+          ratio,
+          active && timerColor === c,
+        );
+      }
       return;
     }
-    const ratio = timerRemainingMs() / timerDuration;
-    setTimerRingProgress(diceWrap, ratio, true);
+
+    setTimerRingProgress(diceWrap, ratio, active);
   }
 
   function getTurnTimerSnapshot(): TurnTimerSnapshot {
@@ -741,10 +821,14 @@ export function mountLudo(
       sounds.play('roll');
       await animateDiceRoll(diceHost, event.value, ROLL_MS);
       if (destroyed) return;
+      lastDiceFace = event.value;
       sounds.play('land');
       if (event.value === 6) sounds.play('six');
     } else if (state.dice != null) {
       setDice(state.dice, false);
+    } else {
+      // Waiting to roll — keep showing last face (or 1)
+      setDice(lastDiceFace, false);
     }
 
     // Capture is applied in engine before `move` — defer victim visuals to path anim
@@ -845,10 +929,31 @@ export function mountLudo(
     modeEl.innerHTML = `<span class="ludo-sdk__badge-bolt">⚡</span> ${state.mode.toUpperCase()} · FIRST TO ${winN}`;
   }
 
+  function paintKingHuds(state: GameState) {
+    root.dataset.turn = String(state.currentColor);
+    root.dataset.phase = state.phase;
+    placeDiceDock(state.currentColor);
+    if (theme.id !== 'king') return;
+    for (const c of [0, 1, 2, 3] as ColorId[]) {
+      const hud = root.querySelector<HTMLElement>(`[data-ludo-hud="${c}"]`);
+      if (!hud) continue;
+      const p = state.players.find((x) => x.color === c);
+      if (!p) {
+        hud.classList.add('ludo-sdk__hud--empty');
+        hud.classList.remove('ludo-sdk__hud--active');
+        continue;
+      }
+      hud.classList.remove('ludo-sdk__hud--empty');
+      const active = c === state.currentColor && state.phase !== 'finished';
+      hud.classList.toggle('ludo-sdk__hud--active', active);
+    }
+  }
+
   function paint(state: GameState, event: GameEvent | null) {
     const legal = game.legalMoves();
     syncTokens(tokensLayer(), state, legal, theme);
     paintChrome(state);
+    paintKingHuds(state);
 
     const mine =
       canControl(state.currentColor) &&
@@ -857,6 +962,7 @@ export function mountLudo(
     const canRoll = mine && state.phase === 'waiting_roll';
     rollBtn.disabled = !canRoll;
     rollBtn.classList.toggle('ludo-sdk__btn--pulse', canRoll);
+    diceHost.classList.toggle('ludo-sdk__dice-dock--armed', canRoll);
 
     if (playersEl) {
       playersEl.innerHTML = state.players
@@ -1120,6 +1226,12 @@ export function mountLudo(
     setInteractiveColors: (colors) => {
       interactive = new Set(colors);
       opts.interactiveColors = colors;
+      if (opts.boardFacing !== false && opts.boardFacing == null) {
+        boardReady = false;
+        ensureBoard();
+      } else {
+        applyBoardFacing();
+      }
       paint(game.getState(), null);
       scheduleTurnTimer(game.getState());
     },
@@ -1127,6 +1239,13 @@ export function mountLudo(
       theme = getTheme(id);
       opts.theme = id;
       applyThemeToElement(root, theme);
+      boardReady = false;
+      ensureBoard();
+      placeDiceDock(game.getState().currentColor);
+      paint(game.getState(), null);
+    },
+    setBoardFacing: (color: ColorId | false) => {
+      opts.boardFacing = color;
       boardReady = false;
       ensureBoard();
       paint(game.getState(), null);
@@ -1260,6 +1379,39 @@ function makeGame(opts: LudoMountOptions): LudoGame {
   });
 }
 
+function kingHud(color: ColorId, corner: 'tl' | 'tr' | 'bl' | 'br'): string {
+  // Ludo King corner dock: pink tray + pin badge; timer ring wraps the outer card
+  const gid = `hudArrow${color}`;
+  // Block arrow (points left; CSS mirrors for right-side HUDs)
+  const arrow = `<span class="ludo-sdk__hud-arrow" aria-hidden="true">
+      <span class="ludo-sdk__hud-arrow-bounce">
+        <svg class="ludo-sdk__hud-arrow-svg" viewBox="0 0 40 30" width="34" height="26">
+          <defs>
+            <linearGradient id="${gid}" x1="0" y1="0.5" x2="1" y2="0.5">
+              <stop offset="0%" stop-color="#F58220"/>
+              <stop offset="40%" stop-color="#FF9A18"/>
+              <stop offset="100%" stop-color="#FFD200"/>
+            </linearGradient>
+          </defs>
+          <path d="M38 6 H17 V2.2 L2 15 L17 27.8 V24 H38 Z"
+            fill="url(#${gid})" stroke="#2A1806" stroke-width="1.85" stroke-linejoin="round"/>
+        </svg>
+      </span>
+    </span>`;
+  return `<div class="ludo-sdk__hud ludo-sdk__hud--${corner} ludo-sdk__hud--c${color}" data-ludo-hud="${color}">
+    <div class="ludo-sdk__hud-shell">
+      ${hudTimerRingMarkup()}
+      <div class="ludo-sdk__hud-card">
+        <div class="ludo-sdk__hud-tray" data-ludo-hud-tray="${color}"></div>
+        <div class="ludo-sdk__hud-badge" aria-hidden="true">
+          <span class="ludo-sdk__hud-pin"></span>
+        </div>
+      </div>
+      ${arrow}
+    </div>
+  </div>`;
+}
+
 function shellHtml(mode: GameMode, showPlayers: boolean): string {
   return `
     <div class="ludo-sdk__header">
@@ -1269,8 +1421,14 @@ function shellHtml(mode: GameMode, showPlayers: boolean): string {
       </div>
       <span class="ludo-sdk__badge" data-ludo-mode><span class="ludo-sdk__badge-bolt">⚡</span> ${mode.toUpperCase()}</span>
     </div>
-    <div class="ludo-sdk__board-wrap" data-ludo-board></div>
-    <div class="ludo-sdk__controls">
+    <div class="ludo-sdk__stage" data-ludo-stage>
+      ${kingHud(1, 'tl')}
+      ${kingHud(2, 'tr')}
+      ${kingHud(0, 'bl')}
+      ${kingHud(3, 'br')}
+      <div class="ludo-sdk__board-wrap" data-ludo-board></div>
+    </div>
+    <div class="ludo-sdk__controls" data-ludo-controls>
       <div class="ludo-sdk__dice-wrap" data-ludo-dice-wrap>
         ${timerRingMarkup()}
         <div class="ludo-sdk__dice-dock" data-ludo-dice-host tabindex="0" role="button" aria-label="Roll dice"></div>

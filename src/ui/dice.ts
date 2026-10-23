@@ -24,22 +24,16 @@ function faceCells(v: number): string {
   }).join('');
 }
 
-/** One die only — never a cube of 6 faces. */
+/**
+ * One die only — never a cube of 6 faces.
+ * `null` / invalid → face 1 (never blank — Ludo King always shows a pip face).
+ */
 export function diceFaceHtml(value: number | null, rolling = false): string {
-  const v =
-    value == null || Number.isNaN(value)
-      ? 0
-      : Math.min(6, Math.max(0, Math.floor(value)));
+  const show =
+    value == null || Number.isNaN(value) || value < 1
+      ? 1
+      : Math.min(6, Math.max(1, Math.floor(value)));
 
-  if (v === 0 && !rolling) {
-    return `<div class="ludo-die" data-ludo-dice aria-label="Dice" role="img">
-      <div class="ludo-die__face ludo-die__face--blank">
-        <span class="ludo-die__hint">roll</span>
-      </div>
-    </div>`;
-  }
-
-  const show = v === 0 ? 1 : v;
   const cls = [
     'ludo-die',
     `ludo-die--${show}`,

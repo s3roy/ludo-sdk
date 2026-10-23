@@ -104,7 +104,7 @@ export {
 
 export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';
 
-/** Server lobby — authoritative rooms. */
+/** Server lobby — authoritative rooms (no player host). */
 export {
   createLudoLobby,
   type LudoLobby,
@@ -114,7 +114,29 @@ export {
   type LobbyRoomStatus,
   type JoinOk,
   type JoinErr,
+  type MissTurnAction,
+  type RoomLifecyclePolicy,
+  type NormalizedRoomPolicy,
 } from './server/lobby';
+
+/** Queue matchmaker — Play → wait → assign room. */
+export {
+  createLudoMatchmaker,
+  type LudoMatchmaker,
+  type LudoMatchmakerOptions,
+  type MatchTableConfig,
+  type PlayInput,
+  type PlayResult,
+  type PlayQueued,
+  type PlayMatched,
+  type QueueUpdate,
+} from './server/matchmaker';
+
+/** Room lifecycle defaults. */
+export {
+  normalizeRoomPolicy,
+  DEFAULT_ROOM_POLICY,
+} from './server/policy';
 
 /** Hosted client — UI + intents only. */
 export {
@@ -133,3 +155,11 @@ export {
   type LudoThemeId,
   type ThemePalette,
 } from './ui/themes';
+
+/** Board facing — put your color bottom-left. */
+export {
+  BOARD_CORNERS,
+  boardRotationDeg,
+  visualCornerForColor,
+  type BoardCorner,
+} from './ui/boardFacing';

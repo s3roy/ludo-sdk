@@ -1,7 +1,9 @@
 /**
- * Authoritative multiplayer lobby.
- * Dice, legality, win, destroy — all server-side via `createLudoRoomHost`.
+ * Authoritative multiplayer rooms.
+ * Dice, legality, win, destroy, turn clock, auto-turn — all server-side.
  * Clients only send intents + render host commands.
+ *
+ * There is no player "host". Your backend creates rooms / uses the matchmaker.
  */
 import { chooseAiMove, type AiDifficulty } from '../core/ai';
 import { COLOR_NAMES, seatColorsForCount } from '../core/constants';
@@ -21,6 +23,11 @@ import type {
   LudoRoomConfig,
 } from '../sdk/room';
 import type { TurnTimerConfig } from '../sdk/turnTimer';
+import {
+  normalizeRoomPolicy,
+  type NormalizedRoomPolicy,
+  type RoomLifecyclePolicy,
+} from './policy';
 
 export type LobbyRoomStatus = 'lobby' | 'playing' | 'finished' | 'destroyed';
 
@@ -39,9 +46,12 @@ export type CreateLobbyRoomInput = {
   /** Fill empty seats with AI when starting. Default true. */
   fillAi?: boolean;
   aiDifficulty?: AiDifficulty;
+  /** Client HUD turn ring (cosmetic + optional offline). */
   turnTimer?: TurnTimerConfig | false;
-  /** Opaque table metadata (stake, currency, table name) — unused by rules. */
+  /** Opaque table metadata (stake, currency, table name). */
   meta?: Record<string, unknown>;
+  /** Backend lifecycle: miss-turn, auto-turn cap, leave. */
+  policy?: RoomLifecyclePolicy;
 };
 
 export type JoinOk = {
@@ -54,6 +64,8 @@ export type JoinOk = {
 };
 
 export type JoinErr = { ok: false; error: string };
+
+export type MissTurnAction = 'skip' | 'auto';
 
 export type LudoLobbyOptions = {
   /** Fan-out to every client in the room (WS room / Redis pubsub). */
@@ -73,6 +85,23 @@ export type LudoLobbyOptions = {
     state: GameState,
   ) => void;
   onEvent?: (roomId: string, event: GameEvent | null, state: GameState) => void;
+  /** Fired when a seat’s turn begins (after start). */
+  onTurn?: (roomId: string, color: ColorId, state: GameState) => void;
+  /** Server clock expired for a human seat. */
+  onMissTurn?: (
+    roomId: string,
+    color: ColorId,
+    streak: number,
+    action: MissTurnAction,
+    state: GameState,
+  ) => void;
+  /** Seat converted to AI after maxAutoTurns or leave. */
+  onSeatConverted?: (
+    roomId: string,
+    color: ColorId,
+    reason: 'max_auto_turns' | 'leave',
+    state: GameState | null,
+  ) => void;
 };
 
 type InternalRoom = {
@@ -84,9 +113,14 @@ type InternalRoom = {
   aiDifficulty: AiDifficulty;
   turnTimer?: TurnTimerConfig | false;
   meta?: Record<string, unknown>;
+  policy: NormalizedRoomPolicy;
   players: Map<string, LobbyPlayer>;
   host: LudoRoomHost | null;
   colors: ColorId[];
+  /** Consecutive miss/auto turns per color. */
+  missStreak: Map<ColorId, number>;
+  turnTimerHandle: ReturnType<typeof setTimeout> | null;
+  turnArmedFor: { color: ColorId; turnId: number } | null;
 };
 
 export type LudoLobby = {
@@ -102,17 +136,24 @@ export type LudoLobby = {
   /** Start match — requires ≥1 human; fills AI if configured. */
   start: (roomId: string) => JoinOk | JoinErr;
   leave: (roomId: string, playerId: string) => { ok: boolean; error?: string };
+  /** Backend/admin remove a player (no player-host). */
+  kick: (
+    roomId: string,
+    targetPlayerId: string,
+  ) => { ok: boolean; error?: string; kickedColor?: ColorId };
   /** Authenticated action — color must belong to playerId. */
   action: (
     roomId: string,
     playerId: string,
     action: LudoClientAction,
   ) => { ok: boolean; error?: string };
+  /** Backend tears down the room. */
   destroy: (roomId: string, reason?: RoomDestroyReason) => void;
   getRoom: (roomId: string) => {
     roomId: string;
     status: LobbyRoomStatus;
     players: LobbyPlayer[];
+    policy: NormalizedRoomPolicy;
     config: LudoRoomConfig | null;
     state: GameState | null;
     meta?: Record<string, unknown>;
@@ -159,6 +200,16 @@ function buildSeats(room: InternalRoom): PlayerConfig[] {
 }
 
 function toConfig(room: InternalRoom): LudoRoomConfig {
+  const duration =
+    room.policy.turnDurationMs === false
+      ? false
+      : ({
+          enabled: true,
+          durationMs: room.policy.turnDurationMs,
+          onTimeout: 'none',
+          appliesTo: 'all',
+        } satisfies TurnTimerConfig);
+
   return {
     roomId: room.id,
     mode: room.mode,
@@ -166,17 +217,15 @@ function toConfig(room: InternalRoom): LudoRoomConfig {
     controlled: true,
     autoAi: false,
     aiDifficulty: room.aiDifficulty,
-    turnTimer: room.turnTimer,
+    turnTimer: room.turnTimer !== undefined ? room.turnTimer : duration,
   };
 }
 
-function snapshot(
-  room: InternalRoom,
-): JoinOk {
+function snapshot(room: InternalRoom): JoinOk {
   return {
     ok: true,
     roomId: room.id,
-    color: 0, // overwritten by callers
+    color: 0,
     config: toConfig(room),
     players: [...room.players.values()],
     status: room.status,
@@ -185,17 +234,7 @@ function snapshot(
 
 /**
  * Multi-room lobby. Wire `broadcast` to your realtime layer.
- *
- * @example
- * ```ts
- * const lobby = createLudoLobby({
- *   broadcast: (roomId, cmd) => io.to(roomId).emit('ludo', cmd),
- * })
- * const { roomId } = lobby.createRoom({ mode: 'rush', maxPlayers: 4 })
- * lobby.join(roomId, { playerId: 'u1', name: 'Alice' })
- * lobby.start(roomId)
- * lobby.action(roomId, 'u1', { type: 'roll', roomId, color: 0 })
- * ```
+ * Prefer `createLudoMatchmaker` for Play-queue integration.
  */
 export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
   const rooms = new Map<string, InternalRoom>();
@@ -204,11 +243,149 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     return rooms.get(roomId) ?? null;
   }
 
+  function clearTurnTimer(room: InternalRoom) {
+    if (room.turnTimerHandle) {
+      clearTimeout(room.turnTimerHandle);
+      room.turnTimerHandle = null;
+    }
+    room.turnArmedFor = null;
+  }
+
+  function convertSeatToAi(
+    room: InternalRoom,
+    color: ColorId,
+    reason: 'max_auto_turns' | 'leave',
+  ) {
+    const player = [...room.players.values()].find((p) => p.color === color);
+    if (player) room.players.delete(player.playerId);
+    room.missStreak.delete(color);
+    if (room.host) {
+      room.host.setPresence(color, 'ready', {
+        kind: 'ai',
+        id: `ai-${color}`,
+        name: COLOR_NAMES[color],
+      });
+      opts.broadcast(room.id, {
+        type: 'seats',
+        seats: room.host.getConfig().seats,
+      });
+      opts.onSeatConverted?.(
+        room.id,
+        color,
+        reason,
+        room.host.getState(),
+      );
+    }
+  }
+
+  function armTurnTimer(room: InternalRoom) {
+    clearTurnTimer(room);
+    if (!room.host || room.status !== 'playing') return;
+    if (room.policy.turnDurationMs === false) return;
+
+    const state = room.host.getState();
+    if (state.phase === 'finished') return;
+    const color = state.currentColor;
+    const seat = state.players.find((p) => p.color === color);
+    if (!seat || seat.kind !== 'human') return;
+    if (state.phase !== 'waiting_roll' && state.phase !== 'waiting_move') {
+      return;
+    }
+
+    const turnId = state.turnId;
+    room.turnArmedFor = { color, turnId };
+    room.turnTimerHandle = setTimeout(() => {
+      handleMissTurn(room, color, turnId);
+    }, room.policy.turnDurationMs);
+  }
+
+  function handleMissTurn(
+    room: InternalRoom,
+    color: ColorId,
+    turnId: number,
+  ) {
+    room.turnTimerHandle = null;
+    if (!room.host || room.status !== 'playing') return;
+    const state = room.host.getState();
+    if (state.turnId !== turnId || state.currentColor !== color) return;
+    const seat = state.players.find((p) => p.color === color);
+    if (!seat || seat.kind !== 'human') return;
+
+    const streak = (room.missStreak.get(color) ?? 0) + 1;
+    room.missStreak.set(color, streak);
+    const action = room.policy.onTurnTimeout;
+
+    if (action === 'auto') {
+      driveSeatOnce(room, color);
+    } else {
+      room.host.handleAction({
+        type: 'forfeit',
+        roomId: room.id,
+        color,
+      });
+    }
+
+    const after = room.host.getState();
+    opts.onMissTurn?.(room.id, color, streak, action, after);
+
+    const stillHuman = [...room.players.values()].some((p) => p.color === color);
+    if (
+      room.policy.maxAutoTurns > 0 &&
+      streak >= room.policy.maxAutoTurns &&
+      stillHuman
+    ) {
+      convertSeatToAi(room, color, 'max_auto_turns');
+    }
+
+    driveAi(room);
+    armTurnTimer(room);
+  }
+
+  /** One roll or one move for a seat (auto-turn / AI). */
+  function driveSeatOnce(room: InternalRoom, color: ColorId) {
+    if (!room.host) return;
+    const rng = opts.rng ?? Math.random;
+    const s = room.host.getState();
+    if (s.currentColor !== color) return;
+    if (s.phase === 'waiting_roll') {
+      room.host.handleAction({ type: 'roll', roomId: room.id, color });
+      const s2 = room.host.getState();
+      if (s2.phase === 'waiting_move' && s2.currentColor === color) {
+        const legal = listLegalMoves(s2);
+        if (legal.length) {
+          const pick = chooseAiMove(legal, s2, room.aiDifficulty, rng);
+          room.host.handleAction({
+            type: 'move',
+            roomId: room.id,
+            color,
+            tokenId: pick.tokenId,
+          });
+        }
+      }
+      return;
+    }
+    if (s.phase === 'waiting_move') {
+      const legal = listLegalMoves(s);
+      if (!legal.length) {
+        room.host.handleAction({ type: 'forfeit', roomId: room.id, color });
+        return;
+      }
+      const pick = chooseAiMove(legal, s, room.aiDifficulty, rng);
+      room.host.handleAction({
+        type: 'move',
+        roomId: room.id,
+        color,
+        tokenId: pick.tokenId,
+      });
+    }
+  }
+
   function createRoom(input: CreateLobbyRoomInput = {}) {
     let id = input.roomId ?? randomId();
     while (rooms.has(id)) id = randomId();
     const maxPlayers = input.maxPlayers ?? 4;
     const colors = seatColorsForCount(maxPlayers, 0);
+    const policy = normalizeRoomPolicy(input.policy);
     const room: InternalRoom = {
       id,
       status: 'lobby',
@@ -218,9 +395,13 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       aiDifficulty: input.aiDifficulty ?? 'hard',
       turnTimer: input.turnTimer,
       meta: input.meta,
+      policy,
       players: new Map(),
       host: null,
       colors,
+      missStreak: new Map(),
+      turnTimerHandle: null,
+      turnArmedFor: null,
     };
     rooms.set(id, room);
     return { roomId: id, status: room.status as LobbyRoomStatus };
@@ -234,7 +415,6 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     if (!room) return { ok: false, error: 'room_not_found' };
     if (room.status === 'destroyed') return { ok: false, error: 'room_destroyed' };
     if (room.status === 'playing' || room.status === 'finished') {
-      // Rejoin only if already seated
       const existing = room.players.get(player.playerId);
       if (!existing) return { ok: false, error: 'game_already_started' };
       existing.ready = true;
@@ -303,8 +483,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     const room = get(roomId);
     if (!room) return { ok: false, error: 'room_not_found' };
     if (room.status === 'playing') {
-      const snap = snapshot(room);
-      return snap;
+      return snapshot(room);
     }
     if (room.status !== 'lobby') return { ok: false, error: 'bad_status' };
     if (room.players.size < 1) return { ok: false, error: 'need_players' };
@@ -313,7 +492,6 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       return { ok: false, error: 'waiting_players' };
     }
 
-    // Mark humans ready
     for (const p of room.players.values()) p.ready = true;
 
     const config = toConfig(room);
@@ -322,14 +500,20 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       rng: opts.rng,
       broadcast: (cmd, id) => opts.broadcast(id, cmd),
       onDestroyed: (reason, state) => {
+        clearTurnTimer(room);
         room.status = 'destroyed';
         opts.onRoomDestroyed?.(roomId, reason, state);
       },
       onWin: (winner, ranking, state) => {
+        clearTurnTimer(room);
         room.status = 'finished';
         opts.onWin?.(roomId, winner, ranking, state);
       },
       onEvent: (event, state) => opts.onEvent?.(roomId, event, state),
+      onTurn: (color, state) => {
+        opts.onTurn?.(roomId, color, state);
+        armTurnTimer(room);
+      },
     });
 
     room.host = host;
@@ -337,11 +521,11 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     host.sync();
     opts.broadcast(roomId, { type: 'seats', seats: config.seats });
     driveAi(room);
+    armTurnTimer(room);
 
     return snapshot(room);
   }
 
-  /** Server-side AI seats — never run on the client in hosted mode. */
   function driveAi(room: InternalRoom) {
     if (!room.host) return;
     const rng = opts.rng ?? Math.random;
@@ -380,16 +564,29 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     if (!room) return { ok: false, error: 'room_not_found' };
     const p = room.players.get(playerId);
     if (!p) return { ok: false, error: 'not_in_room' };
+    const color = p.color;
 
     if (room.host && room.status === 'playing') {
+      const policy = room.policy.onLeave;
+      if (policy === 'convert_ai') {
+        convertSeatToAi(room, color, 'leave');
+        driveAi(room);
+        armTurnTimer(room);
+        return { ok: true };
+      }
       room.host.handleAction({
         type: 'leave',
         roomId,
-        color: p.color,
+        color,
       });
+      room.players.delete(playerId);
+      if (policy === 'destroy_if_empty' && room.players.size === 0) {
+        destroy(roomId, 'abandoned');
+      }
+      return { ok: true };
     }
-    room.players.delete(playerId);
 
+    room.players.delete(playerId);
     if (room.status === 'lobby') {
       opts.broadcast(roomId, { type: 'seats', seats: toConfig(room).seats });
     }
@@ -397,6 +594,17 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       rooms.delete(roomId);
     }
     return { ok: true };
+  }
+
+  function kick(roomId: string, targetPlayerId: string) {
+    const room = get(roomId);
+    if (!room) return { ok: false, error: 'room_not_found' };
+    const target = room.players.get(targetPlayerId);
+    if (!target) return { ok: false, error: 'target_not_in_room' };
+    const kickedColor = target.color;
+    const left = leave(roomId, targetPlayerId);
+    if (!left.ok) return { ok: false, error: left.error };
+    return { ok: true, kickedColor };
   }
 
   function action(
@@ -412,7 +620,6 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     const p = room.players.get(playerId);
     if (!p) return { ok: false, error: 'not_in_room' };
 
-    // Seat ownership — never trust client color alone
     if (
       raw.type === 'roll' ||
       raw.type === 'move' ||
@@ -425,7 +632,6 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       }
     }
 
-    // Destroy only from lobby.destroy(), not client intents
     if (raw.type === 'destroy') {
       return { ok: false, error: 'forbidden' };
     }
@@ -461,14 +667,31 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
         return { ok: false, error: 'unknown_action' };
     }
 
+    const beforeTurn = room.host.getState().turnId;
+    const beforeColor = room.host.getState().currentColor;
     const result = room.host.handleAction(sealed);
-    if (result.ok) driveAi(room);
+    if (result.ok) {
+      // Successful human act resets miss streak for that seat
+      if (raw.type === 'roll' || raw.type === 'move') {
+        room.missStreak.set(p.color, 0);
+      }
+      driveAi(room);
+      const after = room.host.getState();
+      if (
+        after.turnId !== beforeTurn ||
+        after.currentColor !== beforeColor ||
+        after.phase === 'waiting_roll'
+      ) {
+        armTurnTimer(room);
+      }
+    }
     return result;
   }
 
   function destroy(roomId: string, reason: RoomDestroyReason = 'host') {
     const room = get(roomId);
     if (!room) return;
+    clearTurnTimer(room);
     if (room.host) room.host.destroy(reason);
     else {
       opts.broadcast(roomId, { type: 'destroy', reason });
@@ -484,6 +707,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     ready,
     start,
     leave,
+    kick,
     action,
     destroy,
     getRoom: (roomId) => {
@@ -493,6 +717,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
         roomId: room.id,
         status: room.status,
         players: [...room.players.values()],
+        policy: room.policy,
         config: toConfig(room),
         state: room.host?.getState() ?? null,
         meta: room.meta,
@@ -508,3 +733,5 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       })),
   };
 }
+
+export type { RoomLifecyclePolicy, NormalizedRoomPolicy } from './policy';

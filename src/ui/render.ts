@@ -6,16 +6,27 @@ import {
   homeColumnCell,
   tokenPixel,
   trackToCell,
-  yardSlots,
+  YARD_WELL_INSET_FLAT,
+  yardSlotPixels,
 } from './boardLayout';
 import { getTheme, type ThemePalette } from './themes';
 
-/** Static board artwork — theme-aware. */
-export function renderBoardBase(themeInput?: ThemePalette | string): string {
+export type BoardBaseOptions = {
+  /** Color whose yard is labeled "You" (also usually board-facing). Default 0. */
+  facingColor?: ColorId;
+};
+
+/** Static board artwork — theme-aware geometry + palette. */
+export function renderBoardBase(
+  themeInput?: ThemePalette | string,
+  baseOpts?: BoardBaseOptions,
+): string {
   const theme = typeof themeInput === 'string' || !themeInput
     ? getTheme(themeInput)
     : themeInput;
+  const facing = (baseOpts?.facingColor ?? 0) as ColorId;
   const YARD = theme.players;
+  const sh = theme.shape;
   const parts: string[] = [];
 
   parts.push(`
@@ -56,12 +67,14 @@ export function renderBoardBase(themeInput?: ThemePalette | string): string {
     </defs>
   `);
 
-  // Outer board plate
+  const outerStroke =
+    sh.outerStrokeW > 0 && sh.outerStroke !== 'none'
+      ? ` stroke="${sh.outerStroke}" stroke-width="${sh.outerStrokeW}"`
+      : '';
   parts.push(
-    `<rect width="${BOARD_PX}" height="${BOARD_PX}" fill="url(#ludoBoardBg)" rx="16"/>`,
+    `<rect width="${BOARD_PX}" height="${BOARD_PX}" fill="url(#ludoBoardBg)" rx="${sh.boardRx}"${outerStroke}/>`,
   );
 
-  // Corner yards — glossy saturated blocks
   const yards: [ColorId, number, number][] = [
     [1, 0, 0],
     [2, 9, 0],
@@ -69,21 +82,56 @@ export function renderBoardBase(themeInput?: ThemePalette | string): string {
     [3, 9, 9],
   ];
   for (const [color, gx, gy] of yards) {
+    const glow = sh.yardGlow ? ' filter="url(#ludoYardGlow)"' : '';
+    const yardFill = sh.flatYards ? YARD[color] : `url(#ludoYard${color})`;
     parts.push(
-      `<rect x="${gx * CELL + 1.5}" y="${gy * CELL + 1.5}" width="${6 * CELL - 3}" height="${6 * CELL - 3}" rx="14" fill="url(#ludoYard${color})" filter="url(#ludoYardGlow)"/>`,
+      `<rect x="${gx * CELL + 1.5}" y="${gy * CELL + 1.5}" width="${6 * CELL - 3}" height="${6 * CELL - 3}" rx="${sh.yardRx}" fill="${yardFill}"${glow}/>`,
     );
-    // Recessed inner well
+    // Inner white pad (Ludo King: inset white well inside colored base)
+    const inset = sh.flatYards ? YARD_WELL_INSET_FLAT : 2;
     parts.push(
-      `<rect x="${(gx + 1) * CELL + 2}" y="${(gy + 1) * CELL + 2}" width="${4 * CELL - 4}" height="${4 * CELL - 4}" rx="16" fill="rgba(255,255,255,0.42)" stroke="rgba(255,255,255,0.65)" stroke-width="1.4"/>`,
+      `<rect x="${(gx + 1) * CELL + inset}" y="${(gy + 1) * CELL + inset}" width="${4 * CELL - inset * 2}" height="${4 * CELL - inset * 2}" rx="${sh.yardWellRx}" fill="${sh.yardWellFill}" stroke="${sh.yardWellStroke}" stroke-width="${sh.yardWellStrokeW}"/>`,
     );
-    for (const s of yardSlots(color)) {
+    // Exact 2×2 seats — same pixel centers as tokenPixel yard positions
+    for (const s of yardSlotPixels(color, YARD_WELL_INSET_FLAT)) {
+      if (sh.flatYards) {
+        // Ludo King seat: player-color disc + thin maroon inner ring
+        // Yellow: never lighten (washes to cream on white well)
+        // Keep seat discs vivid (same chroma as yard — no mute/wash)
+        const slotFill = YARD[color];
+        // Seat disc only — dark-red ring lives on each pin, not in the yard box
+        parts.push(
+          `<circle cx="${s.x}" cy="${s.y}" r="${sh.yardSlotR}" fill="${slotFill}"/>`,
+        );
+      } else {
+        parts.push(
+          `<circle cx="${s.x}" cy="${s.y}" r="${sh.yardSlotR}" fill="${sh.yardSlotFill}" stroke="${sh.yardSlotStroke}" stroke-width="${sh.yardSlotStrokeW}"/>`,
+        );
+      }
+    }
+    if (sh.flatYards) {
+      // "You" follows the facing seat (bottom-left after board rotate)
+      const label =
+        color === facing
+          ? 'You'
+          : color === ((facing + 1) % 4)
+            ? 'Computer 2'
+            : color === ((facing + 2) % 4)
+              ? 'Computer 3'
+              : 'Computer 4';
+      const lx = (gx + 3) * CELL;
+      const ly = gy === 0 ? gy * CELL + 14 : (gy + 6) * CELL - 8;
+      // Counter-rotate so label stays upright after board facing rotate
+      const upright = facing * 90;
       parts.push(
-        `<circle cx="${s.x * CELL + CELL / 2}" cy="${s.y * CELL + CELL / 2}" r="9.2" fill="rgba(255,255,255,0.22)" stroke="rgba(255,255,255,0.95)" stroke-width="2"/>`,
+        `<g transform="rotate(${upright} ${lx} ${ly})">
+          <text class="ludo-sdk__yard-label" data-yard-color="${color}" x="${lx}" y="${ly}" text-anchor="middle" font-size="11" font-weight="800" font-family="Nunito, Avenir Next, sans-serif" fill="#FFFFFF" stroke="#1a1a1a" stroke-width="2.2" paint-order="stroke fill">${label}</text>
+        </g>`,
       );
     }
   }
 
-  // Track path — cool slate tiles + safe/star
+  const lift = sh.tileLift ? ' filter="url(#ludoTileLift)"' : '';
   for (let i = 0; i < 52; i++) {
     const { x, y } = trackToCell(i);
     const safe = SAFE_TRACK.has(i);
@@ -94,60 +142,125 @@ export function renderBoardBase(themeInput?: ThemePalette | string): string {
       const color = Number(
         Object.entries(START_INDEX).find(([, v]) => v === i)?.[0] ?? 0,
       ) as ColorId;
-      fill = `url(#ludoYard${color})`;
-      stroke = 'rgba(255,255,255,0.7)';
+      fill = sh.flatYards ? YARD[color] : `url(#ludoYard${color})`;
+      stroke = sh.flatYards ? theme.tileBorder : 'rgba(255,255,255,0.7)';
     } else if (safe) {
       fill = theme.tileSafe;
     }
     parts.push(
-      `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="0.9" filter="url(#ludoTileLift)"/>`,
+      `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="${sh.tileRx}" fill="${fill}" stroke="${stroke}" stroke-width="${sh.flatYards ? 1.1 : 0.9}"${lift}/>`,
     );
-    if (safe) {
-      const starFill = start ? '#FFFFFF' : theme.tileStar;
+    if (start && sh.flatYards) {
+      const color = Number(
+        Object.entries(START_INDEX).find(([, v]) => v === i)?.[0] ?? 0,
+      ) as ColorId;
+      parts.push(startArrowMarkup(color, x, y, YARD[color]));
+    } else if (safe) {
+      let starFill = theme.tileStar;
+      let starStroke = 'rgba(0,0,0,0.12)';
+      let starStrokeW = 0.35;
+      if (sh.starOutline) {
+        starFill = 'rgba(255,255,255,0.2)';
+        starStroke = 'rgba(120,120,120,0.95)';
+        starStrokeW = 1.2;
+      } else if (start) {
+        starFill = '#FFFFFF';
+      }
       parts.push(
-        `<text x="${x * CELL + CELL / 2}" y="${y * CELL + CELL / 2 + 4}" text-anchor="middle" font-size="12" font-weight="900" fill="${starFill}" stroke="rgba(0,0,0,0.12)" stroke-width="0.35">★</text>`,
+        `<text x="${x * CELL + CELL / 2}" y="${y * CELL + CELL / 2 + sh.starSize * 0.32}" text-anchor="middle" font-size="${sh.starSize}" font-weight="900" fill="${starFill}" stroke="${starStroke}" stroke-width="${starStrokeW}">★</text>`,
       );
     }
   }
 
-  // Home columns — dedicated home-path HEX
   for (let c = 0; c < 4; c++) {
     const color = c as ColorId;
     for (let i = 0; i < 5; i++) {
       const { x, y } = homeColumnCell(color, i);
+      const homeFill = sh.flatYards ? YARD[color] : `url(#ludoHome${color})`;
       parts.push(
-        `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="5" fill="url(#ludoHome${color})" stroke="rgba(255,255,255,0.55)" stroke-width="1" filter="url(#ludoTileLift)"/>`,
+        `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="${sh.homeTileRx}" fill="${homeFill}" stroke="${sh.flatYards ? theme.tileBorder : 'rgba(255,255,255,0.55)'}" stroke-width="1"${lift}/>`,
       );
     }
   }
 
-  // Center — four wedges + spinner ring (#071329 / #F8FAFC)
   const cx = 7.5 * CELL;
   const cy = 7.5 * CELL;
   const s = 1.58 * CELL;
-  parts.push(`<circle cx="${cx}" cy="${cy}" r="${s + 4}" fill="${theme.spinnerRing}"/>`);
-  parts.push(
-    `<polygon points="${cx},${cy} ${cx},${cy - s} ${cx + s},${cy}" fill="${YARD[2]}"/>`,
-  );
-  parts.push(
-    `<polygon points="${cx},${cy} ${cx + s},${cy} ${cx},${cy + s}" fill="${YARD[3]}"/>`,
-  );
-  parts.push(
-    `<polygon points="${cx},${cy} ${cx},${cy + s} ${cx - s},${cy}" fill="${YARD[0]}"/>`,
-  );
-  parts.push(
-    `<polygon points="${cx},${cy} ${cx - s},${cy} ${cx},${cy - s}" fill="${YARD[1]}"/>`,
-  );
-  parts.push(
-    `<circle cx="${cx}" cy="${cy}" r="${s}" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>`,
-  );
-  parts.push(`<circle cx="${cx}" cy="${cy}" r="5.2" fill="${theme.spinnerCenter}"/>`);
+
+  if (sh.center === 'diamond') {
+    const d = s * 0.92;
+    parts.push(
+      `<rect x="${cx - d}" y="${cy - d}" width="${d * 2}" height="${d * 2}" transform="rotate(45 ${cx} ${cy})" fill="${theme.spinnerRing}" stroke="${theme.spinnerCenter}" stroke-width="2"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy - d * 0.55} ${cx + d * 0.55},${cy} ${cx},${cy + d * 0.55} ${cx - d * 0.55},${cy}" fill="${theme.spinnerCenter}"/>`,
+    );
+  } else if (sh.center === 'ring') {
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="${s + 6}" fill="${theme.spinnerRing}"/>`);
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="${s}" fill="${theme.boardBg0}"/>`);
+    parts.push(
+      `<circle cx="${cx}" cy="${cy}" r="${s - 4}" fill="none" stroke="${theme.spinnerRing}" stroke-width="2.5"/>`,
+    );
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="6" fill="${theme.spinnerCenter}"/>`);
+  } else if (sh.flatYards) {
+    // Ludo King: square of four triangles, no dark ring
+    const half = 1.5 * CELL;
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx - half},${cy - half} ${cx + half},${cy - half}" fill="${YARD[2]}"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx + half},${cy - half} ${cx + half},${cy + half}" fill="${YARD[3]}"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx + half},${cy + half} ${cx - half},${cy + half}" fill="${YARD[0]}"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx - half},${cy + half} ${cx - half},${cy - half}" fill="${YARD[1]}"/>`,
+    );
+  } else {
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="${s + 4}" fill="${theme.spinnerRing}"/>`);
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx},${cy - s} ${cx + s},${cy}" fill="${YARD[2]}"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx + s},${cy} ${cx},${cy + s}" fill="${YARD[3]}"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx},${cy + s} ${cx - s},${cy}" fill="${YARD[0]}"/>`,
+    );
+    parts.push(
+      `<polygon points="${cx},${cy} ${cx - s},${cy} ${cx},${cy - s}" fill="${YARD[1]}"/>`,
+    );
+    parts.push(
+      `<circle cx="${cx}" cy="${cy}" r="${s}" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>`,
+    );
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="5.2" fill="${theme.spinnerCenter}"/>`);
+  }
 
   return `<svg class="ludo-sdk__board" viewBox="0 0 ${BOARD_PX} ${BOARD_PX}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ludo board">
     <g class="ludo-sdk__board-base">${parts.join('')}</g>
     <g class="ludo-sdk__tokens" data-ludo-tokens></g>
     <g class="ludo-sdk__fx" data-ludo-fx></g>
   </svg>`;
+}
+
+/** Colored chevron on start cell — Ludo King style (arrow matches yard color). */
+function startArrowMarkup(
+  color: ColorId,
+  gx: number,
+  gy: number,
+  fill: string,
+): string {
+  const cx = gx * CELL + CELL / 2;
+  const cy = gy * CELL + CELL / 2;
+  // Travel direction on our board: R↑ G→ Y↓ B←
+  const rot = color === 0 ? 0 : color === 1 ? 90 : color === 2 ? 180 : 270;
+  const s = 5.8;
+  // White chevron on the colored start cell (Ludo King)
+  void fill;
+  return `<g transform="translate(${cx},${cy}) rotate(${rot})">
+    <polygon points="0,${-s} ${s * 0.92},${s * 0.62} ${-s * 0.92},${s * 0.62}" fill="#FFFFFF"/>
+  </g>`;
 }
 
 function lighten(hex: string, amount: number): string {
@@ -177,6 +290,54 @@ function hexToRgb(hex: string) {
 }
 
 /** Glossy plastic guti — theme stroke/fill. */
+/** Exact King pin palette (from provided SVG reference). */
+const KING_PIN: Record<
+  ColorId,
+  {
+    base: string;
+    baseStroke: string;
+    gemWell: string;
+    gem: string;
+    gemStroke: string;
+    gemGrad?: [string, string, string];
+    hi: number;
+  }
+> = {
+  0: {
+    base: '#f23b32',
+    baseStroke: '#9a1c18',
+    gemWell: '#8a1814',
+    gem: '#e92830',
+    gemStroke: '#9b111b',
+    gemGrad: ['#ffaaa5', '#e92830', '#970b16'],
+    hi: 0.75,
+  },
+  1: {
+    base: '#42c94f',
+    baseStroke: '#1e7a28',
+    gemWell: '#1a6e24',
+    gem: '#2ed45a',
+    gemStroke: '#1a8a34',
+    hi: 0.75,
+  },
+  2: {
+    base: '#ffde00',
+    baseStroke: '#b89600',
+    gemWell: '#a88800',
+    gem: '#ffce16',
+    gemStroke: '#b68a00',
+    hi: 0.8,
+  },
+  3: {
+    base: '#2196f3',
+    baseStroke: '#0d5f9e',
+    gemWell: '#0a4e82',
+    gem: '#28b4f1',
+    gemStroke: '#0877a8',
+    hi: 0.8,
+  },
+};
+
 export function tokenMarkup(
   token: Token,
   playable: boolean,
@@ -186,23 +347,80 @@ export function tokenMarkup(
     ? getTheme(themeInput)
     : themeInput;
   const { x, y } = tokenPixel(token.color, token.slot, token.state);
-  const fill = `url(#ludoPawn${token.color})`;
   const solid = theme.players[token.color];
+  const fill = theme.shape.flatYards
+    ? solid
+    : `url(#ludoPawn${token.color})`;
   const stroke = theme.pawnStroke;
+  const sw = theme.shape.pawnStrokeW;
+  const isPin = theme.shape.pawnStyle === 'pin';
+  // Pin tip sits on the slot center; classic pawn uses a small lift
+  const ty = isPin ? y : y + 2;
   const cls = [
     'ludo-sdk__token',
     'ludo-sdk__pawn',
+    isPin ? 'ludo-sdk__pawn--pin' : '',
     playable ? 'ludo-sdk__token--playable' : '',
     token.state.kind === 'finished' ? 'ludo-sdk__token--home' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  return `<g class="${cls}" data-token-id="${token.id}" style="transform: translate(${x}px, ${y + 2}px)">
+  const label = theme.shape.pawnLabel
+    ? `<text class="ludo-sdk__token-label" x="0" y="5.4" text-anchor="middle" font-size="7" font-weight="900" fill="${stroke}">${token.slot + 1}</text>`
+    : '';
+
+  if (isPin) {
+    // Exact Ludo King pin (tip-anchored). Source art: 48×62 viewBox, tip at (24,54).
+    const gid = `pin${token.id.replace(/[^a-zA-Z0-9]/g, '')}`;
+    const pin = KING_PIN[token.color];
+    const gemFill =
+      pin.gemGrad != null
+        ? `url(#${gid}Gem)`
+        : pin.gem;
+    const gemDefs =
+      pin.gemGrad != null
+        ? `<linearGradient id="${gid}Gem" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${pin.gemGrad[0]}"/>
+          <stop offset="40%" stop-color="${pin.gemGrad[1]}"/>
+          <stop offset="100%" stop-color="${pin.gemGrad[2]}"/>
+        </linearGradient>`
+        : '';
+    // Paths shifted so tip = (0,0); drawn inside scale(0.48)
+    const shellOuter =
+      'M0 -50 C-11 -50 -18 -42 -18 -32 C-18 -20 -6 -8 0 0 C6 -8 18 -20 18 -32 C18 -42 11 -50 0 -50Z';
+    const shellInner =
+      'M0 -48 C-10 -48 -16 -41 -16 -32 C-16 -22 -6 -11 0 -3 C6 -11 16 -22 16 -32 C16 -41 10 -48 0 -48Z';
+    return `<g class="${cls}" data-token-id="${token.id}" data-pin="lk12" style="transform: translate(${x}px, ${ty}px)">
+      <defs>
+        <linearGradient id="${gid}Shell" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#FFFFFF"/>
+          <stop offset="45%" stop-color="#F8F8F8"/>
+          <stop offset="100%" stop-color="#AEB8BC"/>
+        </linearGradient>
+        ${gemDefs}
+      </defs>
+      <!-- Dark-red foot (idle); white ring marks current/playable -->
+      <circle class="ludo-sdk__pin-foot" cx="0" cy="0.4" r="8.2" fill="none" stroke="#6B1F2A" stroke-width="2.7"/>
+      <g transform="scale(0.48)">
+        <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="#29353B" stroke="#111D24" stroke-width="2" d="${shellOuter}"/>
+        <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="url(#${gid}Shell)" stroke="#FFFFFF" stroke-width="1.5" d="${shellInner}"/>
+        <circle cx="0" cy="-33" r="12.5" fill="${pin.gemWell}"/>
+        <circle class="ludo-sdk__pawn-head" cx="0" cy="-34" r="11" fill="${gemFill}" stroke="${pin.gemStroke}" stroke-width="1.5"/>
+        <ellipse cx="-4" cy="-40" rx="4" ry="2.5" fill="#FFFFFF" opacity="${pin.hi}" transform="rotate(-30 -4 -40)"/>
+      </g>
+      <circle class="ludo-sdk__token-ring" cx="0" cy="0.4" r="9.6" fill="none"
+        stroke="#FFFFFF" stroke-width="2.4" stroke-dasharray="3.6 2.6" stroke-linecap="round" opacity="0"/>
+      ${label}
+    </g>`;
+  }
+
+  return `<g class="${cls}" data-token-id="${token.id}" style="transform: translate(${x}px, ${ty}px)">
     <ellipse class="ludo-sdk__pawn-shadow" cx="0" cy="9.5" rx="8.5" ry="2.4" fill="rgba(0,0,0,0.35)"/>
-    <circle class="ludo-sdk__token-ring" cx="0" cy="-4" r="14" fill="none" stroke="#fff" stroke-width="2.2" opacity="0"/>
-    <ellipse class="ludo-sdk__pawn-base ludo-sdk__token-body" cx="0" cy="7.4" rx="8.6" ry="3" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
-    <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="${fill}" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round"
+    <circle class="ludo-sdk__pin-foot" cx="0" cy="8.2" r="7.4" fill="none" stroke="#6B1F2A" stroke-width="2.6"/>
+    <circle class="ludo-sdk__token-ring" cx="0" cy="8.2" r="9.2" fill="none" stroke="#6B1F2A" stroke-width="2.4" stroke-dasharray="3.6 2.8" stroke-linecap="round" opacity="0"/>
+    <ellipse class="ludo-sdk__pawn-base ludo-sdk__token-body" cx="0" cy="7.4" rx="8.6" ry="3" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
+    <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"
       d="M -5.4 6.6
          C -5.8 3.2 -4.4 0.1 -2.9 -2.4
          L -2.5 -3.4
@@ -213,11 +431,11 @@ export function tokenMarkup(
          L 2.9 -2.4
          C 4.4 0.1 5.8 3.2 5.4 6.6
          Z"/>
-    <ellipse class="ludo-sdk__pawn-collar" cx="0" cy="-2.7" rx="4.4" ry="1.7" fill="${solid}" stroke="${stroke}" stroke-width="0.95"/>
-    <circle class="ludo-sdk__pawn-head ludo-sdk__token-body" cx="0" cy="-7.8" r="3.8" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
+    <ellipse class="ludo-sdk__pawn-collar" cx="0" cy="-2.7" rx="4.4" ry="1.7" fill="${solid}" stroke="${stroke}" stroke-width="${Math.max(0.9, sw - 0.25)}"/>
+    <circle class="ludo-sdk__pawn-head ludo-sdk__token-body" cx="0" cy="-7.8" r="3.8" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
     <circle cx="-1.2" cy="-8.9" r="1.35" fill="#fff" opacity="0.62"/>
     <ellipse cx="1.2" cy="-6.6" rx="1.1" ry="0.55" fill="#fff" opacity="0.18"/>
-    <text class="ludo-sdk__token-label" x="0" y="5.4" text-anchor="middle" font-size="7" font-weight="900" fill="${stroke}">${token.slot + 1}</text>
+    ${label}
   </g>`;
 }
 
@@ -263,10 +481,21 @@ export function syncTokens(
     group.forEach((t, i) => stackOf.set(t.id, { index: i, count: group.length }));
   }
 
+  const pinLift = theme.shape.pawnStyle === 'pin' ? 0 : 2;
   for (const token of state.tokens) {
     const stack = stackOf.get(token.id);
     const { x, y } = tokenPixel(token.color, token.slot, token.state, stack);
-    let node = existing.get(token.id);
+    let node = existing.get(token.id) ?? null;
+    // Rebuild pin markup when not on current King pin geometry
+    if (
+      node &&
+      theme.shape.pawnStyle === 'pin' &&
+      node.getAttribute('data-pin') !== 'lk12'
+    ) {
+      node.remove();
+      existing.delete(token.id);
+      node = null;
+    }
     if (!node) {
       layer.insertAdjacentHTML(
         'beforeend',
@@ -274,13 +503,13 @@ export function syncTokens(
       );
       node = layer.querySelector(`[data-token-id="${token.id}"]`) as SVGGElement;
       node.style.transition = 'none';
-      node.style.transform = `translate(${x}px, ${y + 2}px)`;
+      node.style.transform = `translate(${x}px, ${y + pinLift}px)`;
       requestAnimationFrame(() => {
         node!.style.transition = '';
       });
     } else {
       const prev = node.style.transform;
-      const next = `translate(${x}px, ${y + 2}px)`;
+      const next = `translate(${x}px, ${y + pinLift}px)`;
       if (prev !== next) {
         moved.push(token.id);
         node.style.transform = next;
@@ -290,14 +519,20 @@ export function syncTokens(
         'ludo-sdk__token--home',
         token.state.kind === 'finished',
       );
-      const fill = `url(#ludoPawn${token.color})`;
       const solid = theme.players[token.color];
-      node
-        .querySelectorAll('.ludo-sdk__token-body')
-        .forEach((el) => el.setAttribute('fill', fill));
-      node
-        .querySelectorAll('.ludo-sdk__pawn-collar')
-        .forEach((el) => el.setAttribute('fill', solid));
+      if (theme.shape.pawnStyle === 'pin') {
+        node
+          .querySelectorAll('.ludo-sdk__pawn-head')
+          .forEach((el) => el.setAttribute('fill', solid));
+      } else {
+        const fill = `url(#ludoPawn${token.color})`;
+        node
+          .querySelectorAll('.ludo-sdk__token-body')
+          .forEach((el) => el.setAttribute('fill', fill));
+        node
+          .querySelectorAll('.ludo-sdk__pawn-collar')
+          .forEach((el) => el.setAttribute('fill', solid));
+      }
     }
   }
 

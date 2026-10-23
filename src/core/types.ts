@@ -1,7 +1,7 @@
 /** Player seat / color order: Red → Green → Yellow → Blue (clockwise). */
 export type ColorId = 0 | 1 | 2 | 3;
 
-/** classic = open on 6 / win 4 · rush = open any / win 2 · blitz = open any / win 1 */
+/** classic = open on 6 / win 4 · rush = open on 6 / win 2 · blitz = open on 6 / win 1 */
 export type GameMode = 'classic' | 'rush' | 'blitz';
 
 export type PlayerKind = 'human' | 'ai';

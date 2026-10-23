@@ -41,7 +41,7 @@ function buildTokens(players: PlayerConfig[]): Token[] {
 
 /**
  * Rules (Classic Indian Ludo / Ludo King–style):
- * - Classic: leave yard only on 6; Rush: leave on any roll (token opens to start only)
+ * - Leave yard only on 6 (all modes); token opens to start only
  * - Exact count into home / finish
  * - Safe squares: all starts + star cells — no capture
  * - 2+ same-color tokens on a track cell = block (immune, impassable to others)

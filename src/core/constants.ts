@@ -61,9 +61,9 @@ export function tokensToWin(mode: GameMode): number {
   return 4;
 }
 
-export function canEnterOnRoll(mode: GameMode, dice: number): boolean {
-  if (mode === 'classic') return dice === 6;
-  return dice >= 1; // rush + blitz
+/** All modes: leave yard only on a 6. Modes differ by tokens-to-win. */
+export function canEnterOnRoll(_mode: GameMode, dice: number): boolean {
+  return dice === 6;
 }
 
 export const GAME_MODES: GameMode[] = ['classic', 'rush', 'blitz'];

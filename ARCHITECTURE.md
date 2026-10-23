@@ -16,7 +16,7 @@
 ┌─────────────────────────▼───────────────────────────────────┐
 │  CLIENT SDK (npm install @ludorush/sdk)                     │
 │  mountHostedLudo()                                          │
-│    · themes (rush / felt / neon / ivory / midnight)         │
+│    · themes (king / rush / felt / neon / ivory / midnight)  │
 │    · board UI, dice anim, timer ring                        │
 │    · onAction → transport.send (always defer)               │
 │    · dispatch(hostCommand) only applies state               │
@@ -73,7 +73,7 @@ const ui = mountHostedLudo('#board', {
   mode: join.mode,
   myColor: join.color,
   seats: join.seats,
-  theme: 'felt', // or rush | neon | ivory | midnight
+  theme: 'king', // or rush | felt | neon | ivory | midnight
   transport: {
     send: (a) => socket.emit('ludo:action', a),
     subscribe: (fn) => {

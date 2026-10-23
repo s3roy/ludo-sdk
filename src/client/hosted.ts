@@ -64,6 +64,8 @@ export function mountHostedLudo(
     mode: options.mode ?? 'rush',
     seats: options.seats,
     interactiveColors: [options.myColor],
+    /** Always put this client’s yard at bottom-left. */
+    boardFacing: options.myColor,
     controlled: true,
     autoAi: false,
     theme: options.theme ?? 'felt',

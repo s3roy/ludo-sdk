@@ -52,6 +52,20 @@
   --radius-button: 20px;
   --shadow-panel: 0 20px 50px #00000040;
 
+  /* Die — overridden per theme */
+  --die-face-0: #ffffff;
+  --die-face-1: #f4f0ea;
+  --die-face-2: #e4dcd0;
+  --die-edge: #c4b49a;
+  --die-border: rgba(90, 70, 50, 0.15);
+  --die-pip-0: #3a322c;
+  --die-pip-1: #1a1512;
+  --die-pip-2: #0d0a08;
+  --die-radius: 12px;
+  --die-hint: #a89884;
+  --die-dock-radius: 16px;
+  --die-pip-radius: 50%;
+
   /* aliases used across the sheet */
   --navy: var(--bg-main);
   --navy-2: var(--bg-panel);
@@ -190,6 +204,15 @@
 .ludo-sdk__turn-dot--c2 { background: var(--yellow); }
 .ludo-sdk__turn-dot--c3 { background: var(--blue); }
 
+/* ——— Stage (king HUDs + board; non-king uses display:contents) ——— */
+.ludo-sdk__stage {
+  position: relative;
+  width: 100%;
+}
+.ludo-sdk__hud {
+  display: none;
+}
+
 /* ——— Board ——— */
 .ludo-sdk__board-wrap {
   background: linear-gradient(
@@ -218,6 +241,8 @@
   border-radius: 14px;
   overflow: visible;
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.4));
+  transform-origin: 50% 50%;
+  transition: transform 0.35s ease;
 }
 
 .ludo-sdk--compact .ludo-sdk__board {
@@ -243,16 +268,30 @@
   cursor: pointer;
 }
 
+/* Always-visible red foot under every pin/pawn */
+.ludo-sdk__pin-foot {
+  pointer-events: none;
+}
+
+.ludo-sdk__token-ring {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .ludo-sdk__token--playable .ludo-sdk__token-ring {
-  opacity: 0.95;
+  opacity: 1;
   transform-origin: center;
   transform-box: fill-box;
-  animation: ludo-ring 1s ease-in-out infinite;
+  animation: ludo-ring-spin 2.4s linear infinite;
+}
+
+.ludo-sdk__token--playable .ludo-sdk__pin-foot {
+  opacity: 0.92;
 }
 
 .ludo-sdk__token--playable .ludo-sdk__token-body,
 .ludo-sdk__token--playable .ludo-sdk__pawn-collar {
-  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85));
+  filter: none;
 }
 
 .ludo-sdk__token--moving,
@@ -362,7 +401,7 @@
 .ludo-sdk__dice-dock {
   width: 64px;
   height: 64px;
-  border-radius: 16px;
+  border-radius: var(--die-dock-radius, 16px);
   display: grid;
   place-items: center;
   background: radial-gradient(circle at 40% 30%, #163a6e 0%, var(--dice-dock) 70%);
@@ -474,14 +513,19 @@
   place-items: center;
   padding: var(--die-pad);
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: var(--die-radius, 12px);
   transform-style: preserve-3d;
   background:
-    radial-gradient(circle at 28% 22%, #ffffff 0%, #f4f0ea 50%, #e4dcd0 100%);
-  border: 1px solid rgba(90, 70, 50, 0.15);
+    radial-gradient(
+      circle at 28% 22%,
+      var(--die-face-0) 0%,
+      var(--die-face-1) 50%,
+      var(--die-face-2) 100%
+    );
+  border: 1px solid var(--die-border);
   box-shadow:
-    0 1px 0 #fff inset,
-    0 4px 0 #c4b49a,
+    0 1px 0 color-mix(in srgb, var(--die-face-0) 80%, #fff) inset,
+    0 4px 0 var(--die-edge),
     0 8px 14px rgba(0, 0, 0, 0.28);
 }
 
@@ -495,7 +539,7 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #a89884;
+  color: var(--die-hint);
 }
 
 .ludo-die__slot {
@@ -506,9 +550,14 @@
 .ludo-die__pip {
   width: var(--die-pip);
   height: var(--die-pip);
-  border-radius: 50%;
+  border-radius: var(--die-pip-radius, 50%);
   background:
-    radial-gradient(circle at 35% 30%, #3a322c 0%, #1a1512 55%, #0d0a08 100%);
+    radial-gradient(
+      circle at 35% 30%,
+      var(--die-pip-0) 0%,
+      var(--die-pip-1) 55%,
+      var(--die-pip-2) 100%
+    );
   box-shadow:
     0 1px 1px rgba(255, 255, 255, 0.3),
     inset 0 2px 2px rgba(0, 0, 0, 0.35);
@@ -762,6 +811,11 @@
   50% { transform: scale(1.22); opacity: 0.35; }
 }
 
+@keyframes ludo-ring-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @keyframes ludo-btn-pulse {
   0%, 100% { box-shadow: 0 1px 0 rgba(255,255,255,0.45) inset, 0 5px 0 #b8861a, 0 0 0 0 rgba(245, 197, 66, 0.4); }
   50% { box-shadow: 0 1px 0 rgba(255,255,255,0.45) inset, 0 5px 0 #b8861a, 0 0 0 10px rgba(245, 197, 66, 0); }
@@ -936,5 +990,356 @@
   border: 1px solid #d4af37;
 }
 .ludo-sdk--theme-midnight .ludo-sdk__badge {
+  border-radius: 0;
+}
+
+/* ——— King theme: full Ludo King stage (board + corner dice HUDs) ——— */
+.ludo-sdk--theme-king {
+  --king-bg: #0f234e;
+  max-width: 100%;
+  width: 100%;
+  background-color: var(--king-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.07' stroke-width='1'%3E%3Crect x='20' y='20' width='50' height='50' rx='2'/%3E%3Crect x='90' y='20' width='50' height='50' rx='2'/%3E%3Crect x='20' y='90' width='50' height='50' rx='2'/%3E%3Crect x='90' y='90' width='50' height='50' rx='2'/%3E%3Cpath d='M70 45h20M80 35v20M70 115h20M80 105v20M45 70v20M35 80h20M115 70v20M105 80h20'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 120px 120px;
+  box-shadow: 0 16px 40px #0a142899;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  overflow: visible;
+}
+.ludo-sdk--theme-king .ludo-sdk__header {
+  display: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__players {
+  display: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__controls {
+  display: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__btn[data-ludo-roll],
+.ludo-sdk--theme-king .ludo-sdk__btn[data-ludo-sound] {
+  display: none !important;
+}
+/* HUDs outside the board; gap below/above boxes clear of the yards */
+.ludo-sdk--theme-king .ludo-sdk__stage {
+  --king-hud-h: 48px;
+  --king-hud-gap: 12px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  aspect-ratio: 1;
+  padding: calc(var(--king-hud-h) + var(--king-hud-gap)) 0;
+  box-sizing: border-box;
+  overflow: visible;
+}
+.ludo-sdk--theme-king .ludo-sdk__board-wrap {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  overflow: visible;
+}
+.ludo-sdk--theme-king .ludo-sdk__board {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  display: block;
+  border-radius: 2px;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+}
+
+/* Corner HUDs — gold frame: pink tray (dice) + pin badge; timer on outer shell */
+.ludo-sdk--theme-king .ludo-sdk__hud {
+  display: block;
+  position: absolute;
+  z-index: 4;
+  width: 96px;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--empty {
+  opacity: 0.22;
+  pointer-events: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--tl { top: 0; left: 0; }
+.ludo-sdk--theme-king .ludo-sdk__hud--tr { top: 0; right: 0; }
+.ludo-sdk--theme-king .ludo-sdk__hud--bl { bottom: 0; left: 0; }
+.ludo-sdk--theme-king .ludo-sdk__hud--br { bottom: 0; right: 0; }
+.ludo-sdk--theme-king .ludo-sdk__hud-shell {
+  --timer-red: #ff5a3c;
+  --timer-stroke: #ffc107;
+  position: relative;
+  width: 100%;
+  height: var(--king-hud-h, 48px);
+  padding: 3px; /* room for timer ring outside gold border */
+  box-sizing: border-box;
+  overflow: visible;
+}
+.ludo-sdk--theme-king .ludo-sdk__timer-ring--hud {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 6;
+  overflow: visible;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-shell .ludo-sdk__timer-track {
+  stroke: color-mix(in srgb, #e8c84a 55%, transparent);
+  stroke-width: 2.5;
+  opacity: 0;
+  vector-effect: non-scaling-stroke;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-shell .ludo-sdk__timer-progress {
+  stroke: var(--timer-stroke, #ffc107);
+  stroke-width: 2.75;
+  stroke-linecap: round;
+  opacity: 0;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--timer-stroke, #ffc107) 70%, transparent));
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__timer-track,
+.ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__timer-progress {
+  opacity: 1;
+}
+/* Gold card border stays solid while timer runs around it */
+.ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__hud-card {
+  border-color: #e8c84a;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #e8c84a 35%, transparent),
+    0 3px 8px rgba(0, 0, 0, 0.45);
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-shell--urgent .ludo-sdk__timer-progress {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--timer-red) 65%, transparent));
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-shell--critical .ludo-sdk__timer-progress {
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--timer-red) 80%, transparent));
+  animation: ludo-timer-pulse 0.55s ease-in-out infinite;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-card {
+  display: flex;
+  align-items: stretch;
+  flex-direction: row;
+  background: linear-gradient(180deg, #2a4a7a 0%, #1e3a6e 100%);
+  border: 2.5px solid #e8c84a;
+  border-radius: 8px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--tr .ludo-sdk__hud-card,
+.ludo-sdk--theme-king .ludo-sdk__hud--br .ludo-sdk__hud-card {
+  flex-direction: row-reverse;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-tray {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #fff6f8 0%, #f3c9d6 100%);
+  min-width: 50px;
+  position: relative;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-badge {
+  width: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #2a4a7a 0%, #1e3a6e 100%);
+  border-left: 1.5px solid rgba(232, 200, 74, 0.55);
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--tr .ludo-sdk__hud-badge,
+.ludo-sdk--theme-king .ludo-sdk__hud--br .ludo-sdk__hud-badge {
+  border-left: none;
+  border-right: 1.5px solid rgba(232, 200, 74, 0.55);
+}
+/* Avatar pin in dice HUD badge — original compact shape (do not restyle dock) */
+.ludo-sdk--theme-king .ludo-sdk__hud-pin {
+  width: 14px;
+  height: 18px;
+  display: block;
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 30%, var(--hud-pin, #d93830) 0 34%, transparent 35%),
+    radial-gradient(circle at 50% 30%, #ffffff 0 46%, transparent 47%),
+    linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
+  clip-path: polygon(50% 100%, 8% 48%, 4% 28%, 12% 8%, 35% 0, 65% 0, 88% 8%, 96% 28%, 92% 48%);
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--c0 { --hud-pin: #f23b32; }
+.ludo-sdk--theme-king .ludo-sdk__hud--c1 { --hud-pin: #42c94f; }
+.ludo-sdk--theme-king .ludo-sdk__hud--c2 { --hud-pin: #ffde00; }
+.ludo-sdk--theme-king .ludo-sdk__hud--c3 { --hud-pin: #2196f3; }
+.ludo-sdk--theme-king .ludo-sdk__hud--active .ludo-sdk__hud-card {
+  box-shadow:
+    0 0 10px rgba(232, 200, 74, 0.5),
+    0 3px 8px rgba(0, 0, 0, 0.45);
+}
+/* Ludo King turn arrow — chunky orange→yellow block arrow at active dock */
+.ludo-sdk--theme-king .ludo-sdk__hud-arrow {
+  display: none;
+  position: absolute;
+  z-index: 8;
+  width: 34px;
+  height: 26px;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-arrow-bounce {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Nudge toward the tip (dock) + soft pulse — Ludo King energy */
+  animation: ludo-king-arrow-nudge 0.75s ease-in-out infinite;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-arrow-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--active .ludo-sdk__hud-arrow {
+  display: block;
+}
+/* Left docks: arrow sits outside to the right, tip points left at the dock */
+.ludo-sdk--theme-king .ludo-sdk__hud--tl .ludo-sdk__hud-arrow,
+.ludo-sdk--theme-king .ludo-sdk__hud--bl .ludo-sdk__hud-arrow {
+  left: calc(100% + 4px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* Right docks: mirror so tip points right at the dock */
+.ludo-sdk--theme-king .ludo-sdk__hud--tr .ludo-sdk__hud-arrow,
+.ludo-sdk--theme-king .ludo-sdk__hud--br .ludo-sdk__hud-arrow {
+  right: calc(100% + 4px);
+  left: auto;
+  top: 50%;
+  transform: translateY(-50%) scaleX(-1);
+}
+@keyframes ludo-king-arrow-nudge {
+  0%,
+  100% {
+    transform: translateX(0) scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    transform: translateX(-5px) scale(1.06);
+    filter: drop-shadow(0 0 6px rgba(255, 180, 40, 0.75));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ludo-sdk--theme-king .ludo-sdk__hud-arrow-bounce {
+    animation: none;
+  }
+}
+
+/* Dice sits inside the active HUD tray (not floating over the stage) */
+.ludo-sdk--theme-king .ludo-sdk__hud-tray .ludo-sdk__dice-wrap {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  z-index: 2;
+}
+/* Never show the die-attached timer in King — outer HUD ring only */
+.ludo-sdk--theme-king .ludo-sdk__dice-wrap .ludo-sdk__timer-ring {
+  display: none !important;
+}
+.ludo-sdk--theme-king .ludo-sdk__hud-tray .ludo-sdk__dice-dock {
+  width: 38px;
+  height: 38px;
+  background: transparent;
+  border-radius: 6px;
+  box-shadow: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__dice-dock--armed {
+  cursor: pointer;
+}
+.ludo-sdk--theme-king .ludo-die {
+  --die-size: 34px;
+  --die-pad: 4px;
+  --die-pip: 5.5px;
+}
+.ludo-sdk--theme-king .ludo-die__face {
+  border-radius: 6px;
+  box-shadow:
+    0 1px 0 #ffffff inset,
+    0 2px 0 #c0c0c0,
+    0 4px 8px rgba(0, 0, 0, 0.3);
+}
+.ludo-sdk--theme-king .ludo-die__face--blank {
+  background: linear-gradient(160deg, #ffffff 0%, #f0f0f0 100%);
+}
+.ludo-sdk--theme-king .ludo-die__hint {
+  display: none;
+}
+.ludo-sdk--theme-king .ludo-die__pip {
+  box-shadow: inset 0 1px 1.5px rgba(0, 0, 0, 0.55);
+}
+
+.ludo-sdk--theme-king .ludo-sdk__btn {
+  border-radius: 14px;
+  font-weight: 900;
+  box-shadow: 0 3px 0 #e68900, 0 8px 16px rgba(0, 0, 0, 0.35);
+}
+.ludo-sdk--theme-king .ludo-sdk__pawn--pin {
+  filter: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__pawn--pin .ludo-sdk__token-body {
+  filter: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__pin-foot {
+  fill: none;
+  stroke: #6b1f2a;
+  stroke-width: 2.7px; /* 20% thinner than 3.4 */
+}
+.ludo-sdk--theme-king .ludo-sdk__token--playable .ludo-sdk__pin-foot {
+  opacity: 0.35;
+}
+.ludo-sdk--theme-king .ludo-sdk__token--playable .ludo-sdk__token-ring {
+  opacity: 1;
+  stroke: #ffffff;
+  stroke-width: 2.4px;
+  filter: none;
+  animation-duration: 2.6s;
+}
+
+/* Non-king: stage is just a board wrapper; dice stays in controls */
+.ludo-sdk:not(.ludo-sdk--theme-king) .ludo-sdk__stage {
+  display: contents;
+}
+.ludo-sdk:not(.ludo-sdk--theme-king) .ludo-sdk__hud {
+  display: none !important;
+}
+
+/* Neon die pips — square glow */
+.ludo-sdk--theme-neon .ludo-die__pip {
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--die-pip-1), inset 0 0 2px #fff;
+}
+.ludo-sdk--theme-neon .ludo-die__face {
+  box-shadow:
+    0 0 0 1px #ff00e5,
+    0 0 12px #00f0ff66,
+    0 4px 0 #0099a8;
+}
+.ludo-sdk--theme-felt .ludo-die__face {
+  box-shadow:
+    0 1px 0 #fef9c3 inset,
+    0 3px 0 #854d0e,
+    0 6px 12px rgba(0, 0, 0, 0.4);
+}
+.ludo-sdk--theme-midnight .ludo-die__face {
+  box-shadow:
+    0 0 0 1px #d4af37,
+    0 4px 0 #a16207,
+    0 8px 14px rgba(0, 0, 0, 0.5);
+}
+.ludo-sdk--theme-midnight .ludo-die__pip {
   border-radius: 0;
 }

@@ -17,5 +17,9 @@
 - Win by finishing **4** tokens
 
 ## Rush
-- Leave yard on **any** roll (1–6)
+- Leave yard only on a **6** (same as classic)
 - Win by finishing **2** tokens
+
+## Blitz
+- Leave yard only on a **6** (same as classic)
+- Win by finishing **1** token

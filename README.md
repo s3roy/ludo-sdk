@@ -1,6 +1,6 @@
 # @ludorush/sdk
 
-Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, and host-authoritative multiplayer hooks.
+Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, queue matchmaking, and host-authoritative multiplayer.
 
 ### [▶ Play in the browser](https://s3roy.github.io/ludo-sdk/)
 
@@ -14,32 +14,32 @@ npm i @ludorush/sdk
 import { mountLudoRoom, offlineRoom } from '@ludorush/sdk'
 import '@ludorush/sdk/style.css'
 
-mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }))
+mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }), {
+  theme: 'king',
+})
 ```
 
 ## Features
 
-- **Classic / Rush / Blitz** — same board, different open & win conditions
+- **Classic / Rush / Blitz** — open on 6; win with 4 / 2 / 1 tokens
 - **Headless engine** — validate rolls/moves on your server with the same code
-- **Embeddable UI** — navy glass chrome, bright board, golden roll button ([DESIGN.md](./DESIGN.md))
-- **AI** — easy / normal / hard / **extreme** (expectiminimax deep search)
-- **Themes** — `rush` · `felt` · `neon` · `ivory` · `midnight` (`setTheme`)
-- **Hosted rooms** — `createLudoLobby` (server) + `mountHostedLudo` (client intents only)
-- **Win overlay** — ranking + Play again
-- **2–4 seats** — 2-player uses diagonal colours (Red↔Yellow or Green↔Blue)
-- **Host rooms** — `controlled: true` + `onAction` → your backend owns dice & sync
-- **Turn timer** — blue rounded-rect border on the dice dock (visible for all seats); skip/auto on miss
-- **Seat presence** — `empty` → `joining` → `ready` / `disconnected` for lobby & away handling
-- **Lifecycle callbacks** — `onTurn` / `onMyTurn` / `onWin` / `onDestroy` / `onLegalMoves` / …
-- **destroyRoom** — client teardown; **`createLudoRoomHost`** — backend destroy / validate / broadcast
+- **King theme** — Ludo King–style pins, corner HUDs, turn timer ring around the gold card
+- **Board facing** — your seat always bottom-left (`boardFacing` / `mountHostedLudo`)
+- **AI** — easy / normal / hard / **extreme** (expectiminimax)
+- **Themes** — `king` · `rush` · `felt` · `neon` · `ivory` · `midnight`
+- **Queue matchmaking** — `createLudoMatchmaker` (no player host; backend forms rooms)
+- **Lobby + policies** — turn clock, auto/skip on miss, `maxAutoTurns`, leave → AI
+- **Hosted client** — `mountHostedLudo` (UI + intents only)
+- **2–4 seats** — public pools or named table tokens
+- **Lifecycle callbacks** — `onTurn` / `onMissTurn` / `onWin` / `onDestroy` / …
 
 ## Modes
 
 | Mode | Leave yard | Tokens to win |
 |------|------------|---------------|
 | `classic` | Roll **6** | **4** |
-| `rush` | Any face | **2** |
-| `blitz` | Any face | **1** |
+| `rush` | Roll **6** | **2** |
+| `blitz` | Roll **6** | **1** |
 
 Full rules: [RULES.md](./RULES.md).
 
@@ -54,31 +54,109 @@ const game = mountLudoRoom('#board', offlineRoom({
   players: 4,
   aiDifficulty: 'hard',
   humanColor: 0,
-}), { sound: true })
+}), { theme: 'king', sound: true })
 
-// later
 game.destroy()
 ```
 
-## Multiplayer (your backend)
+## Matchmaking (recommended multiplayer)
 
-Your API creates the room and is the source of truth. Clients mount with `controlled: true` and defer actions:
+No first-joiner host. Players press **Play**; your backend queues them and creates the room when seats fill (or on timeout + AI fill).
 
 ```ts
-const ui = mountLudoRoom('#board', room, {
-  onAction: async (action) => {
-    await api.sendAction(action)
-    return 'defer' // wait for host applyDice / syncState
+import { createLudoMatchmaker } from '@ludorush/sdk'
+
+const mm = createLudoMatchmaker({
+  broadcast: (roomId, cmd) => io.to(roomId).emit('ludo', cmd),
+  notify: (playerId, msg) => io.to(playerId).emit('mm', msg),
+  defaults: {
+    seats: 4,
+    fillAi: true,
+    queueTimeoutMs: 30_000,
+    policy: {
+      turnDurationMs: 15_000,
+      onTurnTimeout: 'auto', // or 'skip'
+      maxAutoTurns: 3,       // consecutive misses → seat becomes AI
+      onLeave: 'convert_ai',
+    },
   },
+  onTurn: (roomId, color, state) => {},
+  onMissTurn: (roomId, color, streak, action, state) => {},
+  onSeatConverted: (roomId, color, reason) => {},
+  onWin: (roomId, winner) => {},
 })
 
-// host → client
-ui.applyDice(4)
-ui.applyMove('red-0')
-ui.syncState(authoritativeState)
+// Named table (optional token)
+mm.openTable({
+  token: 'vip',
+  seats: 2,
+  policy: { turnDurationMs: 12_000, maxAutoTurns: 2 },
+})
+
+// Client pressed Play
+const result = mm.play({ playerId, name: 'Ada', token: 'vip' })
+// → { status: 'queued', … } | { status: 'matched', roomId, color, … }
+
+mm.action(roomId, playerId, intent)
+mm.leave(roomId, playerId)
+mm.destroy(roomId) // backend only
 ```
 
-Step-by-step contracts, handle API, and headless validation: **[DOCS.md](./DOCS.md)**.
+### Client (hosted UI)
+
+```ts
+import { mountHostedLudo } from '@ludorush/sdk'
+import '@ludorush/sdk/style.css'
+
+const ui = mountHostedLudo('#board', {
+  roomId,
+  myColor,          // board rotates so this yard is bottom-left
+  seats,
+  theme: 'king',
+  transport: {
+    send: (action) => socket.emit('action', action),
+    subscribe: (fn) => {
+      socket.on('ludo', (msg) => fn(msg.cmd))
+      return () => socket.off('ludo')
+    },
+  },
+})
+```
+
+### Room policy (set at table / room creation)
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `turnDurationMs` | `15000` | Server turn clock (`false` = off) |
+| `onTurnTimeout` | `'auto'` | `'auto'` play once via AI, or `'skip'` forfeit |
+| `maxAutoTurns` | `3` | Miss streak before seat → AI (`0` = never) |
+| `onLeave` | `'convert_ai'` | `'convert_ai'` · `'forfeit'` · `'destroy_if_empty'` |
+
+Reference FE+BE harness (sibling folder in the monorepo): `tools/ludo-demo` — Play queue, WS protocol, `npm run e2e`.
+
+## Low-level hosted rooms
+
+```ts
+import { createLudoLobby, mountHostedLudo } from '@ludorush/sdk'
+
+const lobby = createLudoLobby({
+  broadcast: (roomId, cmd) => io.to(roomId).emit('ludo', cmd),
+})
+
+const { roomId } = lobby.createRoom({
+  mode: 'rush',
+  maxPlayers: 4,
+  fillAi: true,
+  policy: { turnDurationMs: 15_000, onTurnTimeout: 'auto', maxAutoTurns: 3 },
+})
+lobby.join(roomId, { playerId: 'u1', name: 'Ada' })
+lobby.start(roomId)
+lobby.action(roomId, 'u1', { type: 'roll', roomId, color: 0 })
+```
+
+Prefer **`createLudoMatchmaker`** for product integrations; use **`createLudoLobby`** when you already have matchmaking.
+
+Step-by-step contracts: **[DOCS.md](./DOCS.md)**.
 
 ## Docs
 
@@ -98,7 +176,7 @@ GITHUB_PAGES=1 npm run build:web   # → dist-playground/
 npm run preview                    # local check of that build
 ```
 
-Query params (optional): `?mode=rush&players=4&ai=extreme&theme=neon&room=ABC123`
+Query params (optional): `?mode=rush&players=4&ai=extreme&theme=king&room=ABC123`
 
 ## Develop
 

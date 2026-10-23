@@ -31,8 +31,8 @@ import '@ludorush/sdk/style.css'
 | Mode | Leave yard | Tokens to win |
 |------|------------|---------------|
 | `classic` | Roll 6 | 4 |
-| `rush` | Any | 2 |
-| `blitz` | Any | 1 |
+| `rush` | Roll 6 | 2 |
+| `blitz` | Roll 6 | 1 |
 
 Rules detail: [`RULES.md`](./RULES.md).
 

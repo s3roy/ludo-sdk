@@ -107,7 +107,7 @@ export function homeColumnCell(color: ColorId, index: number): Pt {
 }
 
 export function yardSlots(color: ColorId): Pt[] {
-  // 2×2 inside each corner yard (matches Stitch / classic boards)
+  // 2×2 grid cells (legacy / non-flat themes)
   const bases: Record<ColorId, Pt> = {
     0: { x: 2, y: 11 }, // red bottom-left
     1: { x: 2, y: 2 }, // green top-left
@@ -132,6 +132,29 @@ export function yardOrigin(color: ColorId): Pt {
     3: { x: 9, y: 9 },
   };
   return origins[color];
+}
+
+/**
+ * Exact 2×2 pin seats centered in the white yard well (Ludo King).
+ * Slot order: TL, TR, BL, BR. Returns SVG pixel centers.
+ */
+export function yardSlotPixels(
+  color: ColorId,
+  wellInsetPx = 8,
+): Pt[] {
+  const o = yardOrigin(color);
+  const x0 = (o.x + 1) * CELL + wellInsetPx;
+  const y0 = (o.y + 1) * CELL + wellInsetPx;
+  const size = 4 * CELL - wellInsetPx * 2;
+  // Perfect square grid: centers at 28% / 72% of the well
+  const a = size * 0.28;
+  const b = size * 0.72;
+  return [
+    { x: x0 + a, y: y0 + a },
+    { x: x0 + b, y: y0 + a },
+    { x: x0 + a, y: y0 + b },
+    { x: x0 + b, y: y0 + b },
+  ];
 }
 
 const STACK_FAN: Pt[][] = [
@@ -159,6 +182,9 @@ export function stackPixelOffset(stackIndex: number, stackCount: number): Pt {
   return STACK_FAN[n - 1][i];
 }
 
+/** White-well inset used by Ludo King flat yards (must match board paint). */
+export const YARD_WELL_INSET_FLAT = 8;
+
 export function tokenPixel(
   color: ColorId,
   slot: 0 | 1 | 2 | 3,
@@ -167,8 +193,8 @@ export function tokenPixel(
 ): Pt {
   let base: Pt;
   if (state.kind === 'yard') {
-    const y = yardSlots(color)[slot];
-    base = { x: y.x * CELL + CELL / 2, y: y.y * CELL + CELL / 2 };
+    // Exact 2×2 seats in the white well (same coords as painted discs)
+    base = yardSlotPixels(color, YARD_WELL_INSET_FLAT)[slot];
   } else if (state.kind === 'finished') {
     const offsets = [
       { x: -6, y: -6 },

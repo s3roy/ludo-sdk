@@ -202,23 +202,65 @@ export function setTimerRingProgress(
   active: boolean,
 ) {
   if (!ringHost) return;
-  const wrap = ringHost.closest('.ludo-sdk__dice-wrap') as HTMLElement | null;
-  wrap?.classList.toggle('ludo-sdk__dice-wrap--timing', active);
+  const wrap = ringHost.closest(
+    '.ludo-sdk__dice-wrap, .ludo-sdk__hud-shell',
+  ) as HTMLElement | null;
+  const isHud = !!wrap?.classList.contains('ludo-sdk__hud-shell');
+  wrap?.classList.toggle('ludo-sdk__dice-wrap--timing', active && !isHud);
+  wrap?.classList.toggle('ludo-sdk__hud-shell--timing', active && isHud);
   const r = Math.min(1, Math.max(0, ratio));
   const urgency = 1 - r;
   if (wrap) {
     wrap.style.setProperty('--timer-urgency', urgency.toFixed(3));
     wrap.style.setProperty('--timer-stroke', active ? timerStrokeForRatio(r) : 'transparent');
-    wrap.classList.toggle('ludo-sdk__dice-wrap--urgent', active && r <= 0.35);
-    wrap.classList.toggle('ludo-sdk__dice-wrap--critical', active && r <= 0.15);
+    wrap.classList.toggle('ludo-sdk__dice-wrap--urgent', active && !isHud && r <= 0.35);
+    wrap.classList.toggle('ludo-sdk__dice-wrap--critical', active && !isHud && r <= 0.15);
+    wrap.classList.toggle('ludo-sdk__hud-shell--urgent', active && isHud && r <= 0.35);
+    wrap.classList.toggle('ludo-sdk__hud-shell--critical', active && isHud && r <= 0.15);
   }
   const progress = ringHost.querySelector<SVGRectElement>(
     '[data-ludo-timer-progress]',
   );
   if (!progress) return;
+  const len = Number(progress.getAttribute('pathLength') || TIMER_RING_C);
   // pathLength normalizes dash so countdown is even around the rounded box
-  progress.style.strokeDasharray = String(TIMER_RING_C);
-  progress.style.strokeDashoffset = String(TIMER_RING_C * (1 - r));
+  progress.style.strokeDasharray = String(len);
+  progress.style.strokeDashoffset = String(len * (1 - r));
   progress.style.opacity = active ? '1' : '0';
-  progress.style.stroke = active ? timerStrokeForRatio(r) : '';
+  // King outer HUD uses gold → hot orange; dice dock uses blue → red
+  const stroke = isHud
+    ? r > 0.35
+      ? '#ffc107'
+      : r > 0.15
+        ? '#ff9800'
+        : '#ff5a3c'
+    : timerStrokeForRatio(r);
+  progress.style.stroke = active ? stroke : '';
+  if (wrap && isHud) {
+    wrap.style.setProperty('--timer-stroke', active ? stroke : 'transparent');
+  }
+}
+
+/**
+ * Rounded timer ring for King HUD — viewBox matches the 96×48 shell + pad
+ * so the stroke stays a true border around the gold card (not stretched).
+ */
+export function hudTimerRingMarkup(): string {
+  // Shell is 96×48; 3px pad each side for the countdown stroke outside the card
+  const w = 96;
+  const h = 48;
+  const pad = 1.5;
+  const rx = 9; // matches ~8px card radius + pad
+  const iw = w - pad * 2;
+  const ih = h - pad * 2;
+  const len = Math.round(
+    2 * (iw + ih - 4 * rx) + 2 * Math.PI * rx,
+  );
+  return `<svg class="ludo-sdk__timer-ring ludo-sdk__timer-ring--hud" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+    <rect class="ludo-sdk__timer-track" x="${pad}" y="${pad}" width="${iw}" height="${ih}" rx="${rx}" ry="${rx}" fill="none"/>
+    <rect class="ludo-sdk__timer-progress" data-ludo-timer-progress
+      x="${pad}" y="${pad}" width="${iw}" height="${ih}" rx="${rx}" ry="${rx}" fill="none"
+      stroke-dasharray="${len}" stroke-dashoffset="0"
+      pathLength="${len}"/>
+  </svg>`;
 }

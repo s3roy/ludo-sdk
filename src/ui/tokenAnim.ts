@@ -34,13 +34,15 @@ function place(
   animate: boolean,
   durationMs: number,
 ) {
+  // Pin guti tip is at local (0,0); classic pawns sit slightly above cell center
+  const lift = node.classList.contains('ludo-sdk__pawn--pin') ? 0 : 2;
   if (!animate) {
     node.style.transition = 'none';
-    node.style.transform = `translate(${x}px, ${y + 2}px)`;
+    node.style.transform = `translate(${x}px, ${y + lift}px)`;
     return;
   }
   node.style.transition = `transform ${durationMs}ms cubic-bezier(0.25, 0.85, 0.35, 1)`;
-  node.style.transform = `translate(${x}px, ${y + 2}px)`;
+  node.style.transform = `translate(${x}px, ${y + lift}px)`;
 }
 
 async function hopTo(

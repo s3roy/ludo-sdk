@@ -1,5 +1,5 @@
 /**
- * Visual themes — chrome (CSS) + board/pawn palette (SVG).
+ * Visual themes — full revamp of chrome, board geometry, dice, and pawns.
  * Critical game logic never lives here; themes are client-only cosmetics.
  */
 
@@ -8,7 +8,40 @@ export type LudoThemeId =
   | 'felt'
   | 'neon'
   | 'ivory'
-  | 'midnight';
+  | 'midnight'
+  | 'king';
+
+/** SVG board geometry / ornament — differs per theme. */
+export type BoardShape = {
+  boardRx: number;
+  yardRx: number;
+  yardWellRx: number;
+  tileRx: number;
+  homeTileRx: number;
+  yardWellFill: string;
+  yardWellStroke: string;
+  yardWellStrokeW: number;
+  yardSlotR: number;
+  yardSlotFill: string;
+  yardSlotStroke: string;
+  yardSlotStrokeW: number;
+  starGlyph: string;
+  starSize: number;
+  tileLift: boolean;
+  yardGlow: boolean;
+  outerStroke: string;
+  outerStrokeW: number;
+  /** wedges = classic triangles · diamond = rotated square · ring = thick ring only */
+  center: 'wedges' | 'diamond' | 'ring';
+  pawnStrokeW: number;
+  pawnLabel: boolean;
+  /** Solid flat yards (Ludo King) vs glossy gradients */
+  flatYards: boolean;
+  /** classic plastic guti · pin = Ludo King teardrop with white cap */
+  pawnStyle: 'classic' | 'pin';
+  /** Filled ★ vs outline star */
+  starOutline: boolean;
+};
 
 export type ThemePalette = {
   id: LudoThemeId;
@@ -27,9 +60,174 @@ export type ThemePalette = {
   spinnerRing: string;
   spinnerCenter: string;
   pawnStroke: string;
+  shape: BoardShape;
   /** CSS custom properties applied on `.ludo-sdk` */
   css: Record<string, string>;
   font: string;
+};
+
+const SHAPE_RUSH: BoardShape = {
+  boardRx: 16,
+  yardRx: 14,
+  yardWellRx: 16,
+  tileRx: 5,
+  homeTileRx: 5,
+  yardWellFill: 'rgba(255,255,255,0.42)',
+  yardWellStroke: 'rgba(255,255,255,0.65)',
+  yardWellStrokeW: 1.4,
+  yardSlotR: 9.2,
+  yardSlotFill: 'rgba(255,255,255,0.22)',
+  yardSlotStroke: 'rgba(255,255,255,0.95)',
+  yardSlotStrokeW: 2,
+  starGlyph: '★',
+  starSize: 12,
+  tileLift: true,
+  yardGlow: true,
+  outerStroke: 'none',
+  outerStrokeW: 0,
+  center: 'wedges',
+  pawnStrokeW: 1.2,
+  pawnLabel: true,
+  flatYards: false,
+  pawnStyle: 'classic',
+  starOutline: false,
+};
+
+const SHAPE_FELT: BoardShape = {
+  boardRx: 6,
+  yardRx: 4,
+  yardWellRx: 3,
+  tileRx: 2,
+  homeTileRx: 2,
+  yardWellFill: 'rgba(0,0,0,0.22)',
+  yardWellStroke: 'rgba(253,230,138,0.45)',
+  yardWellStrokeW: 1.2,
+  yardSlotR: 8.5,
+  yardSlotFill: 'rgba(0,0,0,0.18)',
+  yardSlotStroke: 'rgba(253,230,138,0.7)',
+  yardSlotStrokeW: 1.6,
+  starGlyph: '✦',
+  starSize: 11,
+  tileLift: false,
+  yardGlow: false,
+  outerStroke: '#292524',
+  outerStrokeW: 3,
+  center: 'wedges',
+  pawnStrokeW: 1.4,
+  pawnLabel: true,
+  flatYards: false,
+  pawnStyle: 'classic',
+  starOutline: false,
+};
+
+const SHAPE_NEON: BoardShape = {
+  boardRx: 2,
+  yardRx: 2,
+  yardWellRx: 1,
+  tileRx: 1,
+  homeTileRx: 1,
+  yardWellFill: 'rgba(0,0,0,0.55)',
+  yardWellStroke: 'rgba(0,240,255,0.55)',
+  yardWellStrokeW: 1.5,
+  yardSlotR: 7.5,
+  yardSlotFill: 'rgba(0,0,0,0.4)',
+  yardSlotStroke: 'rgba(255,0,229,0.85)',
+  yardSlotStrokeW: 1.8,
+  starGlyph: '◆',
+  starSize: 10,
+  tileLift: false,
+  yardGlow: true,
+  outerStroke: '#ff00e5',
+  outerStrokeW: 2,
+  center: 'diamond',
+  pawnStrokeW: 1.5,
+  pawnLabel: false,
+  flatYards: false,
+  pawnStyle: 'classic',
+  starOutline: false,
+};
+
+const SHAPE_IVORY: BoardShape = {
+  boardRx: 22,
+  yardRx: 18,
+  yardWellRx: 20,
+  tileRx: 8,
+  homeTileRx: 8,
+  yardWellFill: 'rgba(255,250,240,0.72)',
+  yardWellStroke: 'rgba(139,115,85,0.35)',
+  yardWellStrokeW: 1.2,
+  yardSlotR: 9.8,
+  yardSlotFill: 'rgba(212,196,168,0.35)',
+  yardSlotStroke: 'rgba(62,50,38,0.35)',
+  yardSlotStrokeW: 1.4,
+  starGlyph: '✵',
+  starSize: 13,
+  tileLift: true,
+  yardGlow: true,
+  outerStroke: '#c4a574',
+  outerStrokeW: 2,
+  center: 'wedges',
+  pawnStrokeW: 1.1,
+  pawnLabel: true,
+  flatYards: false,
+  pawnStyle: 'classic',
+  starOutline: false,
+};
+
+const SHAPE_MIDNIGHT: BoardShape = {
+  boardRx: 0,
+  yardRx: 0,
+  yardWellRx: 0,
+  tileRx: 0,
+  homeTileRx: 0,
+  yardWellFill: 'rgba(9,9,11,0.65)',
+  yardWellStroke: 'rgba(212,175,55,0.55)',
+  yardWellStrokeW: 1.5,
+  yardSlotR: 8,
+  yardSlotFill: 'rgba(0,0,0,0.45)',
+  yardSlotStroke: '#d4af37',
+  yardSlotStrokeW: 1.5,
+  starGlyph: '★',
+  starSize: 11,
+  tileLift: false,
+  yardGlow: false,
+  outerStroke: '#d4af37',
+  outerStrokeW: 2.5,
+  center: 'ring',
+  pawnStrokeW: 1.35,
+  pawnLabel: true,
+  flatYards: false,
+  pawnStyle: 'classic',
+  starOutline: false,
+};
+
+/** Exact Ludo King board language from reference screenshot. */
+const SHAPE_KING: BoardShape = {
+  boardRx: 2,
+  yardRx: 6,
+  yardWellRx: 10,
+  tileRx: 0,
+  homeTileRx: 0,
+  yardWellFill: '#FFFFFF',
+  yardWellStroke: '#FFFFFF',
+  yardWellStrokeW: 0,
+  /* Seat discs must stay smaller than a path square (CELL=24) */
+  yardSlotR: 10.2,
+  yardSlotFill: '#FFFFFF',
+  yardSlotStroke: '#FFFFFF',
+  yardSlotStrokeW: 0,
+  starGlyph: '☆',
+  starSize: 13,
+  tileLift: false,
+  yardGlow: false,
+  outerStroke: '#2A3D5C',
+  outerStrokeW: 2,
+  center: 'wedges',
+  pawnStrokeW: 1.6,
+  pawnLabel: false,
+  flatYards: true,
+  pawnStyle: 'pin',
+  starOutline: true,
 };
 
 export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
@@ -49,6 +247,7 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
     spinnerRing: '#071329',
     spinnerCenter: '#F8FAFC',
     pawnStroke: '#141018',
+    shape: SHAPE_RUSH,
     font: '"Nunito", "Avenir Next", system-ui, sans-serif',
     css: {
       '--bg-main': '#07152e',
@@ -71,6 +270,17 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
       '--badge-gold': '#ffc21a',
       '--radius-panel': '24px',
       '--radius-button': '20px',
+      '--die-face-0': '#ffffff',
+      '--die-face-1': '#f4f0ea',
+      '--die-face-2': '#e4dcd0',
+      '--die-edge': '#c4b49a',
+      '--die-border': 'rgba(90, 70, 50, 0.15)',
+      '--die-pip-0': '#3a322c',
+      '--die-pip-1': '#1a1512',
+      '--die-pip-2': '#0d0a08',
+      '--die-radius': '12px',
+      '--die-hint': '#a89884',
+      '--die-dock-radius': '16px',
     },
   },
   felt: {
@@ -89,6 +299,7 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
     spinnerRing: '#1C1917',
     spinnerCenter: '#FEF3C7',
     pawnStroke: '#1C1917',
+    shape: SHAPE_FELT,
     font: '"Georgia", "Times New Roman", serif',
     css: {
       '--bg-main': '#0c1f14',
@@ -111,6 +322,17 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
       '--badge-gold': '#fbbf24',
       '--radius-panel': '8px',
       '--radius-button': '6px',
+      '--die-face-0': '#fef3c7',
+      '--die-face-1': '#fde68a',
+      '--die-face-2': '#e7c56a',
+      '--die-edge': '#854d0e',
+      '--die-border': '#a16207',
+      '--die-pip-0': '#451a03',
+      '--die-pip-1': '#1c1917',
+      '--die-pip-2': '#0c0a09',
+      '--die-radius': '4px',
+      '--die-hint': '#854d0e',
+      '--die-dock-radius': '6px',
     },
   },
   neon: {
@@ -129,6 +351,7 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
     spinnerRing: '#000000',
     spinnerCenter: '#00F0FF',
     pawnStroke: '#FFFFFF',
+    shape: SHAPE_NEON,
     font: '"Orbitron", "Segoe UI", system-ui, sans-serif',
     css: {
       '--bg-main': '#050510',
@@ -151,6 +374,18 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
       '--badge-gold': '#00f0ff',
       '--radius-panel': '4px',
       '--radius-button': '2px',
+      '--die-face-0': '#0a0a1a',
+      '--die-face-1': '#12122a',
+      '--die-face-2': '#050510',
+      '--die-edge': '#00f0ff',
+      '--die-border': '#ff00e5',
+      '--die-pip-0': '#5cfff7',
+      '--die-pip-1': '#00f0ff',
+      '--die-pip-2': '#0099a8',
+      '--die-radius': '2px',
+      '--die-hint': '#00f0ff',
+      '--die-dock-radius': '2px',
+      '--die-pip-radius': '2px',
     },
   },
   ivory: {
@@ -169,6 +404,7 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
     spinnerRing: '#3E3226',
     spinnerCenter: '#FFFAF0',
     pawnStroke: '#3E3226',
+    shape: SHAPE_IVORY,
     font: '"Palatino Linotype", "Book Antiqua", Palatino, serif',
     css: {
       '--bg-main': '#f0e6d3',
@@ -191,6 +427,17 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
       '--badge-gold': '#8a7018',
       '--radius-panel': '16px',
       '--radius-button': '12px',
+      '--die-face-0': '#fffaf0',
+      '--die-face-1': '#f7f1e5',
+      '--die-face-2': '#e8dcc8',
+      '--die-edge': '#c4a574',
+      '--die-border': '#8b7355',
+      '--die-pip-0': '#5c4d3c',
+      '--die-pip-1': '#3e3226',
+      '--die-pip-2': '#2a2118',
+      '--die-radius': '14px',
+      '--die-hint': '#8a7a66',
+      '--die-dock-radius': '14px',
     },
   },
   midnight: {
@@ -209,6 +456,7 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
     spinnerRing: '#D4AF37',
     spinnerCenter: '#09090B',
     pawnStroke: '#D4AF37',
+    shape: SHAPE_MIDNIGHT,
     font: '"Helvetica Neue", Helvetica, Arial, sans-serif',
     css: {
       '--bg-main': '#09090b',
@@ -231,6 +479,73 @@ export const LUDO_THEMES: Record<LudoThemeId, ThemePalette> = {
       '--badge-gold': '#d4af37',
       '--radius-panel': '0px',
       '--radius-button': '0px',
+      '--die-face-0': '#18181b',
+      '--die-face-1': '#27272a',
+      '--die-face-2': '#09090b',
+      '--die-edge': '#d4af37',
+      '--die-border': '#d4af37',
+      '--die-pip-0': '#fbbf24',
+      '--die-pip-1': '#d4af37',
+      '--die-pip-2': '#a16207',
+      '--die-radius': '0px',
+      '--die-hint': '#d4af37',
+      '--die-dock-radius': '0px',
+    },
+  },
+  /** Ludo King reference — royal blue chrome, white path, white die, pin pawns. */
+  king: {
+    id: 'king',
+    label: 'King',
+    /* Saturated yard quads — match live Ludo King primaries */
+    players: ['#F23B32', '#42C94F', '#FFDE00', '#2196F3'],
+    highlights: ['#FF5A52', '#58E066', '#FFF04A', '#4AADFF'],
+    darks: ['#C42822', '#2E9A38', '#D4B000', '#1769B8'],
+    homePath: ['#F23B32', '#42C94F', '#FFDE00', '#2196F3'],
+    tileEmpty: '#FFFFFF',
+    tileBorder: '#6A6A6A',
+    tileSafe: '#FFFFFF',
+    tileStar: '#FFFFFF',
+    boardBg0: '#FFFFFF',
+    boardBg1: '#FFFFFF',
+    spinnerRing: '#FFFFFF',
+    spinnerCenter: '#FFFFFF',
+    pawnStroke: '#FFFFFF',
+    shape: SHAPE_KING,
+    font: '"Nunito", "Avenir Next", system-ui, sans-serif',
+    css: {
+      '--bg-main': '#0f234e',
+      '--bg-outer': '#0f234e',
+      '--bg-panel': '#1a3366',
+      '--border-panel': '#3d5a80',
+      '--text-primary': '#ffffff',
+      '--text-secondary': '#c5d4ff',
+      '--text-muted': '#8fa3d9',
+      '--player-red': '#f23b32',
+      '--player-green': '#42c94f',
+      '--player-yellow': '#ffde00',
+      '--player-blue': '#2196f3',
+      '--board-frame': '#0f234e',
+      '--board-frame-hi': '#e8c84a',
+      '--btn-roll-start': '#ffc107',
+      '--btn-roll-end': '#ff9800',
+      '--btn-text': '#0f234e',
+      '--dice-dock': '#ffffff',
+      '--dice-glow': '#e8c84a',
+      '--badge-gold': '#e8c84a',
+      '--radius-panel': '12px',
+      '--radius-button': '14px',
+      '--die-face-0': '#ffffff',
+      '--die-face-1': '#f7f7f7',
+      '--die-face-2': '#ebebeb',
+      '--die-edge': '#bdbdbd',
+      '--die-border': '#9e9e9e',
+      '--die-pip-0': '#222222',
+      '--die-pip-1': '#111111',
+      '--die-pip-2': '#000000',
+      '--die-radius': '7px',
+      '--die-hint': '#9e9e9e',
+      '--die-dock-radius': '8px',
+      '--die-pip-radius': '50%',
     },
   },
 };
@@ -251,6 +566,7 @@ export function applyThemeToElement(
     el.classList.remove(`ludo-sdk--theme-${id}`);
   }
   el.classList.add(`ludo-sdk--theme-${theme.id}`);
+  el.dataset.theme = theme.id;
   el.style.fontFamily = theme.font;
   for (const [k, v] of Object.entries(theme.css)) {
     el.style.setProperty(k, v);

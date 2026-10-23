@@ -97,7 +97,7 @@ function currentConfig(forceNewId = false): GameConfig {
     mode: modeSel.value as GameMode,
     players: Number(playersSel.value),
     aiDifficulty: diffSel.value as AiDifficulty,
-    theme: isTheme(themeVal) ? themeVal : 'rush',
+    theme: isTheme(themeVal) ? themeVal : 'king',
     roomId: forceNewId ? randomRoomId() : fromUrl.roomId ?? randomRoomId(),
     timer: timerSel.value,
   };
