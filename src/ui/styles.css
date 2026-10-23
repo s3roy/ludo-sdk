@@ -252,11 +252,16 @@
 /* Pawns — movement uses per-hop inline transitions (no teleport slide) */
 .ludo-sdk__token {
   cursor: default;
-  transform-box: fill-box;
-  transform-origin: center bottom;
   transition: none;
   /* Non-playable never steal taps from a buried playable pin */
   pointer-events: none;
+}
+
+/* Classic pawns: CSS translate with foot origin.
+   King pins: SVG transform="" only (tip = local 0,0) — never set CSS transform. */
+.ludo-sdk__token:not(.ludo-sdk__pawn--pin) {
+  transform-box: fill-box;
+  transform-origin: center bottom;
 }
 
 .ludo-sdk__token-label {
@@ -295,11 +300,9 @@
   transform: translateZ(0);
 }
 .ludo-sdk__pin-base {
-  z-index: 0;
   pointer-events: none;
 }
 .ludo-sdk__pin-figure {
-  z-index: 1;
   pointer-events: none;
 }
 
@@ -319,9 +322,8 @@
 
 .ludo-sdk__token--playable .ludo-sdk__token-ring {
   opacity: 1;
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: ludo-ring-spin 2.4s linear infinite;
+  /* Dash offset spin — never CSS transform (that paints above the pin tip) */
+  animation: ludo-ring-dash 5.5s linear infinite;
 }
 
 .ludo-sdk__token--playable .ludo-sdk__pin-foot {
@@ -532,61 +534,64 @@
   box-shadow: none;
 }
 
-/* Die */
+/* Die — CSS 3D cube (lauroguedes/3d-dice-roller style) */
 .ludo-die {
   --die-size: 48px;
-  --die-pad: 7px;
-  --die-pip: 8px;
+  --die-half: calc(var(--die-size) / 2);
+  --die-pad: 14%;
+  --die-pip: 18%;
+  --die-radius: 10px;
   width: var(--die-size);
   height: var(--die-size);
   flex-shrink: 0;
-  perspective: 280px;
+  pointer-events: none;
 }
 
-.ludo-die__face {
+.ludo-die__scene {
   width: 100%;
   height: 100%;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  place-items: center;
-  padding: var(--die-pad);
-  box-sizing: border-box;
-  border-radius: var(--die-radius, 12px);
+  perspective: calc(var(--die-size) * 8);
+  perspective-origin: 50% 45%;
+}
+
+.ludo-die__cube {
+  width: 100%;
+  height: 100%;
+  position: relative;
   transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.ludo-die__side {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: var(--die-radius);
   background:
     radial-gradient(
       circle at 28% 22%,
       var(--die-face-0) 0%,
-      var(--die-face-1) 50%,
+      var(--die-face-1) 55%,
       var(--die-face-2) 100%
     );
   border: 1px solid var(--die-border);
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--die-face-0) 80%, #fff) inset,
-    0 4px 0 var(--die-edge),
-    0 8px 14px rgba(0, 0, 0, 0.28);
+    inset 0 0 10px rgba(0, 0, 0, 0.08),
+    0 1px 0 color-mix(in srgb, var(--die-face-0) 70%, #fff);
+  /* visible during tumble so edge faces stay solid (matches 3d-dice-roller) */
+  backface-visibility: visible;
+  transform-style: preserve-3d;
 }
 
-.ludo-die__face--blank {
-  display: grid;
-  place-items: center;
-}
+.ludo-die__side--front { transform: translateZ(var(--die-half)); }
+.ludo-die__side--back { transform: rotateY(180deg) translateZ(var(--die-half)); }
+.ludo-die__side--right { transform: rotateY(90deg) translateZ(var(--die-half)); }
+.ludo-die__side--left { transform: rotateY(-90deg) translateZ(var(--die-half)); }
+.ludo-die__side--top { transform: rotateX(90deg) translateZ(var(--die-half)); }
+.ludo-die__side--bottom { transform: rotateX(-90deg) translateZ(var(--die-half)); }
 
-.ludo-die__hint {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--die-hint);
-}
-
-.ludo-die__slot {
-  width: var(--die-pip);
-  height: var(--die-pip);
-}
-
-.ludo-die__pip {
+.ludo-die__dot {
+  position: absolute;
   width: var(--die-pip);
   height: var(--die-pip);
   border-radius: var(--die-pip-radius, 50%);
@@ -597,23 +602,34 @@
       var(--die-pip-1) 55%,
       var(--die-pip-2) 100%
     );
-  box-shadow:
-    0 1px 1px rgba(255, 255, 255, 0.3),
-    inset 0 2px 2px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.ludo-die__dot--center {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.ludo-die__dot--top-left { top: var(--die-pad); left: var(--die-pad); }
+.ludo-die__dot--top-right { top: var(--die-pad); right: var(--die-pad); }
+.ludo-die__dot--bottom-left { bottom: var(--die-pad); left: var(--die-pad); }
+.ludo-die__dot--bottom-right { bottom: var(--die-pad); right: var(--die-pad); }
+.ludo-die__dot--middle-left {
+  top: 50%;
+  left: var(--die-pad);
+  transform: translateY(-50%);
+}
+.ludo-die__dot--middle-right {
+  top: 50%;
+  right: var(--die-pad);
+  transform: translateY(-50%);
 }
 
 .ludo-die.is-rolling {
-  --die-spin-ms: 520ms;
-  animation: ludo-dice-spin var(--die-spin-ms) cubic-bezier(0.2, 0.7, 0.25, 1) both;
+  pointer-events: none;
 }
 
-.ludo-die.is-rolling .ludo-die__face {
-  filter: blur(1.2px) brightness(1.05);
-}
-
-.ludo-die.is-land .ludo-die__face {
-  animation: ludo-dice-land 0.22s cubic-bezier(0.2, 1.2, 0.35, 1) both;
-  filter: none;
+.ludo-die.is-land .ludo-die__scene {
+  animation: ludo-dice-land 0.16s cubic-bezier(0.2, 1.4, 0.35, 1) both;
 }
 
 /* ——— Players 2×2 ——— */
@@ -868,29 +884,20 @@
   to { transform: rotate(360deg); }
 }
 
+/* Playable ring crawl — stroke only, keeps SVG paint order (tip over ring) */
+@keyframes ludo-ring-dash {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -50; }
+}
+
 @keyframes ludo-btn-pulse {
   0%, 100% { box-shadow: 0 1px 0 rgba(255,255,255,0.45) inset, 0 5px 0 #b8861a, 0 0 0 0 rgba(245, 197, 66, 0.4); }
   50% { box-shadow: 0 1px 0 rgba(255,255,255,0.45) inset, 0 5px 0 #b8861a, 0 0 0 10px rgba(245, 197, 66, 0); }
 }
 
-@keyframes ludo-dice-spin {
-  0% {
-    transform: translateY(0) rotate(0deg) scale(1);
-  }
-  35% {
-    transform: translateY(-10px) rotate(220deg) scale(1.06);
-  }
-  70% {
-    transform: translateY(-4px) rotate(480deg) scale(1.02);
-  }
-  100% {
-    transform: translateY(0) rotate(720deg) scale(1);
-  }
-}
-
 @keyframes ludo-dice-land {
-  0% { transform: scale(0.86); }
-  55% { transform: scale(1.1); }
+  0% { transform: scale(0.94); }
+  55% { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
 
@@ -949,8 +956,6 @@
 
   .ludo-die {
     --die-size: 42px;
-    --die-pad: 6px;
-    --die-pip: 7px;
   }
 
   .ludo-sdk__btn {
@@ -973,9 +978,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ludo-sdk__token,
   .ludo-sdk__token--playable .ludo-sdk__token-ring,
-  .ludo-die.is-rolling,
-  .ludo-die.is-rolling .ludo-die__face,
-  .ludo-die.is-land .ludo-die__face,
+  .ludo-die.is-land .ludo-die__scene,
   .ludo-sdk__btn--pulse:not(:disabled) {
     animation: none !important;
     transition: none !important;
@@ -1293,8 +1296,8 @@
 /* Dice sits inside the active HUD tray (not floating over the stage) */
 .ludo-sdk--theme-king .ludo-sdk__hud-tray .ludo-sdk__dice-wrap {
   position: relative;
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   margin: 0;
   z-index: 2;
 }
@@ -1303,8 +1306,11 @@
   display: none !important;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud-tray .ludo-sdk__dice-dock {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  overflow: hidden; /* 3D depth must not spill past the pink tray */
   background: transparent;
   border-radius: 6px;
   box-shadow: none;
@@ -1313,24 +1319,20 @@
   cursor: pointer;
 }
 .ludo-sdk--theme-king .ludo-die {
-  --die-size: 34px;
-  --die-pad: 4px;
-  --die-pip: 5.5px;
+  /* Face + depth must fit inside 34px dock (was 36 → spilled past the box) */
+  --die-size: 28px;
+  --die-radius: 6px;
+  --die-pad: 16%;
+  --die-pip: 17%;
 }
-.ludo-sdk--theme-king .ludo-die__face {
-  border-radius: 6px;
+.ludo-sdk--theme-king .ludo-die__side {
+  border-radius: 7px;
+  border-color: #c8c8c8;
   box-shadow:
-    0 1px 0 #ffffff inset,
-    0 2px 0 #c0c0c0,
-    0 4px 8px rgba(0, 0, 0, 0.3);
+    inset 0 0 8px rgba(0, 0, 0, 0.06),
+    0 1px 0 #fff;
 }
-.ludo-sdk--theme-king .ludo-die__face--blank {
-  background: linear-gradient(160deg, #ffffff 0%, #f0f0f0 100%);
-}
-.ludo-sdk--theme-king .ludo-die__hint {
-  display: none;
-}
-.ludo-sdk--theme-king .ludo-die__pip {
+.ludo-sdk--theme-king .ludo-die__dot {
   box-shadow: inset 0 1px 1.5px rgba(0, 0, 0, 0.55);
 }
 
@@ -1345,12 +1347,7 @@
 .ludo-sdk--theme-king .ludo-sdk__pawn--pin .ludo-sdk__token-body {
   filter: none;
 }
-.ludo-sdk--theme-king .ludo-sdk__pin-base {
-  z-index: 0;
-}
-.ludo-sdk--theme-king .ludo-sdk__pin-figure {
-  z-index: 2;
-}
+/* King pin: DOM order is the stack — base then figure (no z-index fights) */
 
 /* Winner overlay — above HUDs, King gold card */
 .ludo-sdk--theme-king .ludo-sdk__win {
@@ -1395,23 +1392,32 @@
 .ludo-sdk--theme-king .ludo-sdk__pin-foot {
   fill: none;
   stroke: #6b1f2a;
-  stroke-width: 2.7px; /* 20% thinner than 3.4 */
+  stroke-width: 1.8px;
 }
 .ludo-sdk--theme-king .ludo-sdk__token--playable .ludo-sdk__pin-foot {
-  opacity: 0.35;
+  opacity: 0.3;
 }
 .ludo-sdk--theme-king .ludo-sdk__token--playable .ludo-sdk__token-ring {
-  opacity: 1;
-  stroke: #ffc107;
-  stroke-width: 3px;
-  filter: drop-shadow(0 0 2.5px rgba(255, 193, 7, 0.95));
-  animation-duration: 2.2s;
+  stroke: #ffffff;
+  stroke-width: 1.55px;
+  stroke-dasharray: 0.95 2.6;
+  stroke-linecap: round;
+  opacity: 0.95;
+  animation: ludo-ring-dash 5.5s linear infinite;
 }
 .ludo-sdk--theme-king .ludo-sdk__token--playable {
   z-index: 5;
 }
+/* Stacks: one visible foot (top pin) — under pins hide feet to kill ghost rings */
+.ludo-sdk--theme-king .ludo-sdk__token--stacked .ludo-sdk__pin-foot {
+  opacity: 0.45;
+}
 .ludo-sdk--theme-king .ludo-sdk__token--stacked.ludo-sdk__token--stack-under .ludo-sdk__pin-foot {
-  opacity: 0.55;
+  opacity: 0;
+}
+.ludo-sdk--theme-king .ludo-sdk__token--stacked.ludo-sdk__token--stack-under .ludo-sdk__token-ring {
+  opacity: 0;
+  animation: none;
 }
 
 /* Non-king: stage is just a board wrapper; dice stays in controls */
@@ -1423,28 +1429,26 @@
 }
 
 /* Neon die pips — square glow */
-.ludo-sdk--theme-neon .ludo-die__pip {
+.ludo-sdk--theme-neon .ludo-die__dot {
   border-radius: 2px;
   box-shadow: 0 0 6px var(--die-pip-1), inset 0 0 2px #fff;
 }
-.ludo-sdk--theme-neon .ludo-die__face {
+.ludo-sdk--theme-neon .ludo-die__side {
   box-shadow:
     0 0 0 1px #ff00e5,
     0 0 12px #00f0ff66,
-    0 4px 0 #0099a8;
+    inset 0 0 8px rgba(0, 240, 255, 0.15);
 }
-.ludo-sdk--theme-felt .ludo-die__face {
+.ludo-sdk--theme-felt .ludo-die__side {
   box-shadow:
     0 1px 0 #fef9c3 inset,
-    0 3px 0 #854d0e,
-    0 6px 12px rgba(0, 0, 0, 0.4);
+    inset 0 0 10px rgba(133, 77, 14, 0.12);
 }
-.ludo-sdk--theme-midnight .ludo-die__face {
+.ludo-sdk--theme-midnight .ludo-die__side {
   box-shadow:
     0 0 0 1px #d4af37,
-    0 4px 0 #a16207,
-    0 8px 14px rgba(0, 0, 0, 0.5);
+    inset 0 0 10px rgba(212, 175, 55, 0.12);
 }
-.ludo-sdk--theme-midnight .ludo-die__pip {
+.ludo-sdk--theme-midnight .ludo-die__dot {
   border-radius: 0;
 }

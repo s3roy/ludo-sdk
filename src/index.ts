@@ -16,6 +16,7 @@ export {
   chooseAiMove,
   playAiTurn,
   playAiStep,
+  playAiSeatOnce,
   currentPlayerIsAi,
   type AiDifficulty,
 } from './core/ai';

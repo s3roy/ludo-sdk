@@ -276,14 +276,16 @@ function opponentCanKillAfter(
   return attackersBehind(state, self, move.to.index, move.tokenId).length;
 }
 
+type AiGame = {
+  getState: () => GameState;
+  roll: () => number | null;
+  play: (m: LegalMove) => boolean;
+  legalMoves: () => LegalMove[];
+};
+
 /** One AI action (roll OR move). Returns true if an action was taken. */
 export function playAiStep(
-  game: {
-    getState: () => GameState;
-    roll: () => number | null;
-    play: (m: LegalMove) => boolean;
-    legalMoves: () => LegalMove[];
-  },
+  game: AiGame,
   color: ColorId,
   difficulty: AiDifficulty = 'hard',
   rng?: () => number,
@@ -300,6 +302,38 @@ export function playAiStep(
     if (moves.length === 0) return false;
     game.play(chooseAiMove(moves, s, difficulty, rng));
     return true;
+  }
+  return false;
+}
+
+/**
+ * Miss / auto-play: complete the seat’s pending action.
+ * If they still need to roll → roll, then pick a pin if the seat stays on move.
+ * If they already rolled → pick a pin. Matches server `driveSeatOnce`.
+ */
+export function playAiSeatOnce(
+  game: AiGame,
+  color: ColorId,
+  difficulty: AiDifficulty = 'hard',
+  rng?: () => number,
+): boolean {
+  const before = game.getState();
+  if (before.phase === 'finished' || before.currentColor !== color) return false;
+
+  if (before.phase === 'waiting_roll') {
+    game.roll();
+    const mid = game.getState();
+    if (mid.phase === 'waiting_move' && mid.currentColor === color) {
+      const moves = game.legalMoves();
+      if (moves.length) {
+        game.play(chooseAiMove(moves, mid, difficulty, rng));
+      }
+    }
+    return true;
+  }
+
+  if (before.phase === 'waiting_move') {
+    return playAiStep(game, color, difficulty, rng);
   }
   return false;
 }

@@ -178,37 +178,47 @@ const STACK_FAN: Pt[][] = [
 ];
 
 /**
- * King pin tips share a point — need a wider fan so foot rings / bodies
- * don’t pile into one overlapping column.
+ * Tip-anchored King pins: offsets move the TIP (local 0,0).
+ * Tips stay on/near the cell center — never fan wider than ~half a CELL.
  */
-const STACK_FAN_PIN: Pt[][] = [
-  [{ x: 0, y: 0 }],
-  [
-    { x: -14, y: 2 },
-    { x: 14, y: 2 },
-  ],
-  [
-    { x: -15, y: -2 },
-    { x: 15, y: -2 },
-    { x: 0, y: 12 },
-  ],
-  [
-    { x: -15, y: -6 },
-    { x: 15, y: -6 },
-    { x: -15, y: 10 },
-    { x: 15, y: 10 },
-  ],
-];
+function pinStackOffsets(count: number): Pt[] {
+  const n = Math.max(1, Math.min(8, count));
+  if (n === 1) return [{ x: 0, y: 0 }];
+  if (n === 2) {
+    return [
+      { x: -2, y: 0 },
+      { x: 2, y: 0 },
+    ];
+  }
+  if (n === 3) {
+    return [
+      { x: -3.5, y: -2 },
+      { x: 3.5, y: -2 },
+      { x: 0, y: 3 },
+    ];
+  }
+  const r = 2.4 + (n - 4) * 0.3;
+  const pts: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+  }
+  return pts;
+}
 
 export function stackPixelOffset(
   stackIndex: number,
   stackCount: number,
   style: 'pin' | 'default' = 'default',
 ): Pt {
-  const table = style === 'pin' ? STACK_FAN_PIN : STACK_FAN;
+  if (style === 'pin') {
+    const pts = pinStackOffsets(stackCount);
+    const i = Math.max(0, Math.min(pts.length - 1, stackIndex));
+    return pts[i]!;
+  }
   const n = Math.max(1, Math.min(4, stackCount));
   const i = Math.max(0, Math.min(n - 1, stackIndex));
-  return table[n - 1]![i]!;
+  return STACK_FAN[n - 1]![i]!;
 }
 
 /** White-well inset used by Ludo King flat yards (must match board paint). */

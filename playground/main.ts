@@ -1,11 +1,15 @@
 import {
+  COLOR_NAMES,
   mountLudoRoom,
   offlineRoom,
   THEME_IDS,
   type AiDifficulty,
+  type ColorId,
   type GameMode,
+  type GameState,
   type LudoHandle,
   type LudoThemeId,
+  type PlayerConfig,
   type TurnTimerAutoAction,
   type TurnTimerConfig,
 } from '@ludorush/sdk';
@@ -20,7 +24,11 @@ const roomIdEl = document.querySelector<HTMLElement>('#roomId')!;
 const newGameBtn = document.querySelector<HTMLButtonElement>('#newGame')!;
 const shareBtn = document.querySelector<HTMLButtonElement>('#share')!;
 const pauseBtn = document.querySelector<HTMLButtonElement>('#pauseTimer')!;
+const starStackBtn = document.querySelector<HTMLButtonElement>('#starStack')!;
 const toastEl = document.querySelector<HTMLElement>('#toast')!;
+
+/** Star track cells (not starts): red / green / yellow / blue arms */
+const STAR_CELLS = [8, 21, 34, 47] as const;
 
 let handle: LudoHandle | null = null;
 let toastTimer = 0;
@@ -103,7 +111,7 @@ function currentConfig(forceNewId = false): GameConfig {
   };
 }
 
-function writeUrl(cfg: GameConfig, replace = true) {
+function writeUrl(cfg: GameConfig, demo?: 'star-stack', replace = true) {
   const url = new URL(location.href);
   url.searchParams.set('mode', cfg.mode);
   url.searchParams.set('players', String(cfg.players));
@@ -111,6 +119,8 @@ function writeUrl(cfg: GameConfig, replace = true) {
   url.searchParams.set('theme', cfg.theme);
   url.searchParams.set('room', cfg.roomId);
   url.searchParams.set('timer', cfg.timer);
+  if (demo) url.searchParams.set('demo', demo);
+  else url.searchParams.delete('demo');
   history[replace ? 'replaceState' : 'pushState'](null, '', url);
 }
 
@@ -121,25 +131,72 @@ function toast(msg: string) {
   toastTimer = window.setTimeout(() => toastEl.classList.remove('show'), 1800);
 }
 
-function start(cfg: GameConfig) {
+function freezeSeats(): PlayerConfig[] {
+  return ([0, 1, 2, 3] as ColorId[]).map((color) => ({
+    id: `seat-${color}`,
+    name: COLOR_NAMES[color][0]!.toUpperCase() + COLOR_NAMES[color].slice(1),
+    kind: 'human' as const,
+    color,
+    presence: 'ready' as const,
+  }));
+}
+
+/**
+ * Each color: 2 pins stacked on that color’s star (4 stacks × 2).
+ * Easy to judge tip centering without an 8-wide fan.
+ */
+function applyStarStackDemo(h: LudoHandle) {
+  const s = h.getState();
+  const tokens = s.tokens.map((t) => {
+    // slots 0+1 on this color’s star; 2+3 stay in yard
+    if (t.slot === 0 || t.slot === 1) {
+      const star = STAR_CELLS[t.color]!;
+      return { ...t, state: { kind: 'track' as const, index: star } };
+    }
+    return { ...t, state: { kind: 'yard' as const } };
+  });
+  const next: GameState = {
+    ...s,
+    tokens,
+    players: freezeSeats(),
+    phase: 'waiting_roll',
+    dice: null,
+    currentColor: 0,
+    consecutiveSixes: 0,
+  };
+  h.syncState(next);
+  h.setTurnTimer(false);
+}
+
+function start(cfg: GameConfig, demo?: 'star-stack') {
   handle?.destroy();
   roomIdEl.textContent = cfg.roomId;
-  writeUrl(cfg);
+  writeUrl(cfg, demo);
 
-  const room = offlineRoom({
-    roomId: cfg.roomId,
-    mode: cfg.mode,
-    players: cfg.players,
-    aiDifficulty: cfg.aiDifficulty,
-    humanColor: 0,
-  });
+  const room =
+    demo === 'star-stack'
+      ? {
+          roomId: cfg.roomId,
+          mode: cfg.mode,
+          seats: freezeSeats(),
+          interactiveColors: [0, 1, 2, 3] as ColorId[],
+          autoAi: false,
+          controlled: false,
+        }
+      : offlineRoom({
+          roomId: cfg.roomId,
+          mode: cfg.mode,
+          players: cfg.players,
+          aiDifficulty: cfg.aiDifficulty,
+          humanColor: 0,
+        });
 
   handle = mountLudoRoom(mountEl, room, {
     compact: true,
     sound: true,
     theme: cfg.theme,
-    aiDelayMs: 600,
-    turnTimer: timerConfig(cfg.timer),
+    aiDelayMs: demo === 'star-stack' ? 60_000 : 600,
+    turnTimer: demo === 'star-stack' ? false : timerConfig(cfg.timer),
     onRematch: () => {
       newGame();
     },
@@ -159,12 +216,24 @@ function start(cfg: GameConfig) {
       console.info('[timer] miss', ctx.color, ctx.phase, ctx.turnId);
     },
   });
+
+  if (demo === 'star-stack') {
+    applyStarStackDemo(handle);
+    toast('Star stacks · 2 pins per color on each star');
+  }
 }
 
 function newGame() {
   const cfg = currentConfig(true);
   start(cfg);
   toast(`Game ${cfg.roomId} ready — roll when it’s your turn`);
+}
+
+function showStarStack() {
+  const cfg = currentConfig(true);
+  cfg.theme = 'king';
+  cfg.players = 4;
+  start(cfg, 'star-stack');
 }
 
 async function share() {
@@ -200,6 +269,7 @@ function togglePause() {
 
 applyForm(readConfigFromUrl());
 newGameBtn.addEventListener('click', newGame);
+starStackBtn.addEventListener('click', showStarStack);
 shareBtn.addEventListener('click', () => {
   void share();
 });
@@ -222,4 +292,9 @@ themeSel.addEventListener('change', () => {
   }
 });
 
-start(currentConfig(false));
+const bootDemo = new URLSearchParams(location.search).get('demo');
+if (bootDemo === 'star-stack') {
+  showStarStack();
+} else {
+  start(currentConfig(false));
+}

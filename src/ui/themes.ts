@@ -211,8 +211,8 @@ const SHAPE_KING: BoardShape = {
   yardWellFill: '#FFFFFF',
   yardWellStroke: '#FFFFFF',
   yardWellStrokeW: 0,
-  /* Seat discs must stay smaller than a path square (CELL=24) */
-  yardSlotR: 10.2,
+  /* Seat discs — close to pin foot so tip reads planted, not floating in a huge pad */
+  yardSlotR: 6.5,
   yardSlotFill: '#FFFFFF',
   yardSlotStroke: '#FFFFFF',
   yardSlotStrokeW: 0,

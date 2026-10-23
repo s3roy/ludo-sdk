@@ -1,6 +1,7 @@
 import {
   chooseAiMove,
   currentPlayerIsAi,
+  playAiSeatOnce,
   playAiStep,
   type AiDifficulty,
 } from '../core/ai';
@@ -224,7 +225,8 @@ export type LudoHandle = {
   roomId?: string;
 };
 
-const ROLL_MS = 650;
+/** One continuous tumble (was 1800 with a 2nd “land spin” that felt like a double roll) */
+const ROLL_MS = 1100;
 
 function buildPlayers(count: number, humanColor: ColorId): PlayerConfig[] {
   // 2p = diagonal opposites; 3p = human + 2 clockwise; 4p = all
@@ -651,7 +653,7 @@ export function mountLudo(
         game.forfeitTurn();
       } else if (absentCfg.action === 'auto') {
         showToast('Away — auto');
-        playAiStep(game, s.currentColor, opts.aiDifficulty ?? 'hard');
+        playAiSeatOnce(game, s.currentColor, opts.aiDifficulty ?? 'hard');
       }
     }, absentCfg.delayMs);
   }
@@ -714,8 +716,8 @@ export function mountLudo(
       return;
     }
     if (action === 'auto') {
-      // Auto-play for the timed seat (works even if human)
-      playAiStep(game, s.currentColor, opts.aiDifficulty ?? 'hard');
+      // Miss → roll and/or move the pin (same as server driveSeatOnce)
+      playAiSeatOnce(game, s.currentColor, opts.aiDifficulty ?? 'hard');
     }
   }
 
@@ -968,7 +970,31 @@ export function mountLudo(
       scheduleAi(next);
       scheduleAbsent(next);
       scheduleTurnTimer(next);
+      scheduleSoloMove(next);
     }
+  }
+
+  /** Only one legal pin → move it (after roll anim), same as Ludo King. */
+  function scheduleSoloMove(state: GameState) {
+    if (opts.controlled) return;
+    if (state.phase !== 'waiting_move' || state.dice == null) return;
+    if (!canControl(state.currentColor)) return;
+    const legal = game.legalMoves();
+    if (legal.length !== 1) return;
+    const tokenId = legal[0]!.tokenId;
+    const turnId = state.turnId;
+    window.setTimeout(() => {
+      if (destroyed || busy) return;
+      const s = game.getState();
+      if (
+        s.phase !== 'waiting_move' ||
+        s.turnId !== turnId ||
+        !canControl(s.currentColor)
+      ) {
+        return;
+      }
+      void requestMove(tokenId);
+    }, 220);
   }
 
   function paintChrome(state: GameState) {
