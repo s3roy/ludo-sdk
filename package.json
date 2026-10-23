@@ -48,7 +48,8 @@
     "test:hosted": "npx tsx src/core/hosted-e2e.ts",
     "test:bots": "npx tsx src/core/bot-playthrough.ts",
     "test:e2e": "npx tsx src/core/e2e.ts",
-    "test": "npm run typecheck && npm run smoke && npm run test:host && npm run test:arch && npm run test:extreme && npm run test:hosted && npm run test:bots && npm run test:e2e",
+    "test:ai-six": "npx tsx src/core/ai-six-e2e.ts",
+    "test": "npm run typecheck && npm run smoke && npm run test:host && npm run test:arch && npm run test:extreme && npm run test:hosted && npm run test:bots && npm run test:ai-six && npm run test:e2e",
     "preview": "vite preview --config vite.playground.config.ts --port 5195"
   },
   "keywords": [

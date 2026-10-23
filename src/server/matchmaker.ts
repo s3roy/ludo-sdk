@@ -1,13 +1,8 @@
 /**
- * Optional in-process Play queue (demos / prototypes).
- *
- * Production apps usually match users in their own backend, then call
- * `createLudoLobby().createMatch({ players })` with the chosen seats.
- *
- * Demo flow:
+ * In-process Play queue.
  * 1. `openTable({ token, seats, policy… })` (optional named pool)
- * 2. Client presses Play → `play({ playerId, name, token? })`
- * 3. When enough players (or queue timeout + fillAi) → room created + started
+ * 2. `play({ playerId, name, token? })`
+ * 3. Full queue (or timeout + fillAi) → room created + started
  */
 import type { AiDifficulty } from '../core/ai';
 import type { ColorId, GameEvent, GameMode, GameState } from '../core/types';

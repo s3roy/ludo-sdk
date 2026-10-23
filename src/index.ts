@@ -110,7 +110,7 @@ export {
 
 export { LudoSounds, type SoundName, type SoundOptions } from './audio/sounds';
 
-/** Server lobby — you pick players, SDK runs the room. */
+/** Server lobby. */
 export {
   createLudoLobby,
   type LudoLobby,
@@ -128,10 +128,7 @@ export {
   type NormalizedRoomPolicy,
 } from './server/lobby';
 
-/**
- * Optional in-process queue helper for demos.
- * Prefer matching users in your backend, then `lobby.createMatch({ players })`.
- */
+/** In-process Play queue helper. */
 export {
   createLudoMatchmaker,
   type LudoMatchmaker,

@@ -839,6 +839,8 @@ export function mountLudo(
   async function handleUpdate(state: GameState, event: GameEvent | null) {
     if (destroyed) return;
     ensureBoard();
+    // Capture is followed by a `move` event — don't AI-schedule mid applyChosen
+    let shouldSchedule = event?.type !== 'capture';
     try {
       if (event?.type === 'roll') {
         busy = true;
@@ -953,17 +955,19 @@ export function mountLudo(
       if (event) opts.onEvent?.(event, state);
       opts.onChange?.(state);
       emitLegalMovesIfNeeded(game.getState());
-
-      const next = game.getState();
-      scheduleAi(next);
-      scheduleAbsent(next);
-      scheduleTurnTimer(next);
     } finally {
       // Never leave the board stuck unable to tap after anim / errors
       if (!destroyed) {
         busy = false;
         syncTimerPauseForBusy();
       }
+    }
+    // Schedule AFTER busy clears — scheduling while busy dropped AI after every roll/6
+    if (!destroyed && shouldSchedule) {
+      const next = game.getState();
+      scheduleAi(next);
+      scheduleAbsent(next);
+      scheduleTurnTimer(next);
     }
   }
 
@@ -1068,14 +1072,21 @@ export function mountLudo(
     if (p && isSeatAbsent(p.presence, p.kind) && p.kind === 'human') return;
     if (!currentPlayerIsAi(state)) return;
     if (canControl(state.currentColor)) return;
-    if (busy) return;
     if (aiTimer) clearTimeout(aiTimer);
+    const delay = opts.aiDelayMs ?? 650;
     aiTimer = setTimeout(() => {
-      if (destroyed || busy) return;
+      if (destroyed) return;
+      // Dice/move anim still running — retry instead of dropping the seat
+      if (busy) {
+        scheduleAi(game.getState());
+        return;
+      }
       const s = game.getState();
+      if (s.phase === 'finished') return;
       if (!currentPlayerIsAi(s) || opts.controlled) return;
+      if (canControl(s.currentColor)) return;
       playAiStep(game, s.currentColor, opts.aiDifficulty ?? 'hard');
-    }, opts.aiDelayMs ?? 650);
+    }, delay);
   }
 
   async function requestRoll() {

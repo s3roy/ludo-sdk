@@ -1,10 +1,6 @@
 /**
- * Authoritative multiplayer rooms.
- * Dice, legality, win, destroy, turn clock, auto-turn — all server-side.
- * Clients only send intents + render host commands.
- *
- * Your backend decides who plays: call `createMatch({ players })` with the
- * users you already matched. Queue / Elo / parties stay in your code.
+ * Multiplayer rooms — dice, legality, win, turn clock, auto-turn on the server.
+ * Clients send intents and render host commands.
  */
 import { chooseAiMove, type AiDifficulty } from '../core/ai';
 import { COLOR_NAMES, seatColorsForCount } from '../core/constants';
@@ -63,10 +59,7 @@ export type CreateMatchPlayer = {
   color?: ColorId;
 };
 
-/**
- * Backend match entry — you pick the users, SDK starts the room.
- * Matchmaking / queues live in your backend; this only seats + starts.
- */
+/** Seat these players and start the room. */
 export type CreateMatchInput = CreateLobbyRoomInput & {
   players: CreateMatchPlayer[];
 };
@@ -151,10 +144,7 @@ type InternalRoom = {
 };
 
 export type LudoLobby = {
-  /**
-   * One-shot: seat the players your backend chose and start.
-   * Prefer this over createRoom/join/start when you already matched users.
-   */
+  /** Seat players and start. */
   createMatch: (input: CreateMatchInput) => CreateMatchOk | JoinErr;
   createRoom: (input?: CreateLobbyRoomInput) => {
     roomId: string;
@@ -264,10 +254,7 @@ function snapshot(room: InternalRoom): JoinOk {
   };
 }
 
-/**
- * Multi-room lobby. Wire `broadcast` to your realtime layer.
- * Typical backend: match users yourself → `createMatch({ players })`.
- */
+/** Multi-room lobby. Wire `broadcast` to your realtime layer. */
 export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
   const rooms = new Map<string, InternalRoom>();
 
@@ -733,10 +720,6 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     rooms.delete(roomId);
   }
 
-  /**
-   * Backend already matched users → seat them and start in one call.
-   * Empty seats become AI when `fillAi` (default true).
-   */
   function createMatch(input: CreateMatchInput): CreateMatchOk | JoinErr {
     const list = input.players ?? [];
     if (list.length < 1) return { ok: false, error: 'need_players' };

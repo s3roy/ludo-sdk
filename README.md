@@ -58,9 +58,7 @@ const game = mountLudoRoom('#board', offlineRoom({
 game.destroy()
 ```
 
-## Multiplayer (recommended)
-
-**Matchmaking stays in your backend.** Pick the users however you like (queue, party, Elo), then hand them to the SDK:
+## Multiplayer
 
 ```ts
 import { createLudoLobby, mountHostedLudo } from '@ludorush/sdk'
@@ -71,17 +69,16 @@ const lobby = createLudoLobby({
   onTurn: (roomId, color) => {},
 })
 
-// You already decided Ada + Bob (+ AI fill)
 const match = lobby.createMatch({
   players: [
     { playerId: 'u1', name: 'Ada' },
     { playerId: 'u2', name: 'Bob' },
   ],
-  maxPlayers: 4,       // empty seats → AI
+  maxPlayers: 4,
   mode: 'rush',
   policy: {
     turnDurationMs: 15_000,
-    onTurnTimeout: 'auto', // or 'skip'
+    onTurnTimeout: 'auto',
     maxAutoTurns: 3,
     onLeave: 'convert_ai',
   },
@@ -90,7 +87,7 @@ if (!match.ok) throw new Error(match.error)
 
 lobby.action(match.roomId, 'u1', intent)
 lobby.leave(match.roomId, 'u1')
-lobby.destroy(match.roomId) // backend only
+lobby.destroy(match.roomId)
 ```
 
 ### Client (hosted UI)
@@ -132,11 +129,7 @@ lobby.join(roomId, { playerId: 'u2', name: 'Bob' })
 lobby.start(roomId)
 ```
 
-### Optional demo queue
-
-`createLudoMatchmaker` is a thin in-process Play queue for prototypes. Prefer your own matchmaker + `createMatch`. See `tools/ludo-demo` in the monorepo.
-
-Step-by-step contracts: **[DOCS.md](./DOCS.md)**.
+See **[DOCS.md](./DOCS.md)** for rooms, timer, host commands.
 
 ## Docs
 

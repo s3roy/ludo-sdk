@@ -1,8 +1,4 @@
-# @ludorush/sdk — production guide
-
-Self-hosted Ludo: **your backend owns matchmaking and the room**; this SDK is the rules engine + embeddable board + lifecycle callbacks.
-
-Match users however you want (queue, party, Elo), then:
+# Docs
 
 ```ts
 import { createLudoLobby } from '@ludorush/sdk'
@@ -16,25 +12,10 @@ const match = lobby.createMatch({
     { playerId: 'u1', name: 'Ada' },
     { playerId: 'u2', name: 'Bob' },
   ],
-  maxPlayers: 4, // remaining seats → AI
+  maxPlayers: 4,
   mode: 'rush',
   policy: { turnDurationMs: 15_000, onTurnTimeout: 'auto', maxAutoTurns: 3 },
 })
-```
-
-`createLudoMatchmaker` is an optional in-process Play queue for demos — prefer your own matcher + `createMatch`.
-
-```
-┌─────────────┐     create room / seats      ┌──────────────┐
-│  Your API   │ ───────────────────────────► │  Postgres /  │
-│  (host)     │                              │  Redis       │
-└──────┬──────┘                              └──────────────┘
-       │ WS / SSE: sync | dice | presence | destroy
-       ▼
-┌─────────────┐   onAction(roll|move|forfeit|leave|destroy)
-│  mountLudo  │ ───────────────────────────► │  Your API    │
-│  (client)   │ ◄─────────────────────────── │  validates   │
-└─────────────┘   applyDice / syncState / destroyRoom
 ```
 
 ## Install
@@ -80,8 +61,6 @@ const game = mountLudoRoom('#board', room, {
 ```
 
 ## Lifecycle callbacks
-
-Wire these on `mountLudo` / `mountLudoRoom`. Raw engine events still arrive via `onEvent`.
 
 | Callback | When |
 |----------|------|
@@ -132,9 +111,7 @@ ui.isMyTurn()  // boolean
 
 ## Destroy room
 
-### Backend (authoritative) — `createLudoRoomHost`
-
-Your server owns the engine and can destroy the room for **all** clients:
+### Backend — `createLudoRoomHost`
 
 ```ts
 import { createLudoRoomHost, offlineRoom } from '@ludorush/sdk'
@@ -207,7 +184,7 @@ ui.isDestroyed()
 | `abandoned` | Last human left |
 | `error` | Fatal sync / network |
 
-## Hosted room (backend-authoritative)
+## Hosted room
 
 ### 1. Backend creates the room
 
