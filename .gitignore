@@ -9,3 +9,8 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Local Ludo King refs — do not publish
+design/king-ref/*
+!design/king-ref/README.md
+!design/king-ref/.gitkeep
