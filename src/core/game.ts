@@ -45,7 +45,9 @@ function buildTokens(players: PlayerConfig[]): Token[] {
  * - Exact count into home / finish
  * - Safe squares: all starts + star cells — no capture
  * - 2+ same-color tokens on a track cell = block (immune, impassable to others)
- * - Roll 6 → extra roll; a third consecutive 6 in one turn is impossible (P=0)
+ * - Roll 6 → extra roll only if the 6 was used (a legal move was played)
+ * - Void 6 (no legal moves, e.g. home needs 1–5) → turn passes, no bonus roll
+ * - A third consecutive 6 in one turn is impossible (P=0)
  * - Capture or finish a token → extra roll
  * - First to tokensToWin (classic 4 / rush 2) wins
  */
@@ -123,19 +125,12 @@ export class LudoGame {
     this.state.phase = 'waiting_move';
     const moves = listLegalMoves(this.state);
     if (moves.length === 0) {
+      // Void roll (incl. a 6 that cannot move) — pass turn. Bonus 6 only
+      // after a legal move is played (see applyChosen).
       this.emit({ type: 'no_moves', color: this.state.currentColor });
-      const rolledSix = value === 6;
       this.state.dice = null;
       this.state.phase = 'waiting_roll';
-      if (rolledSix) {
-        this.emit({
-          type: 'extra_turn',
-          color: this.state.currentColor,
-          reason: 'six',
-        });
-      } else {
-        this.advanceTurn();
-      }
+      this.advanceTurn();
     }
     return value;
   }

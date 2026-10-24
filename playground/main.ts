@@ -15,6 +15,22 @@ import {
 } from '@ludorush/sdk';
 
 const mountEl = document.querySelector<HTMLElement>('#mount')!;
+/** Safari iOS: lock immersive shell to visualViewport (not 100dvh). */
+function bindAppViewportHeight() {
+  const set = () => {
+    const h = window.visualViewport?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty('--app-vh', `${Math.round(h)}px`);
+  };
+  set();
+  window.visualViewport?.addEventListener('resize', set);
+  window.visualViewport?.addEventListener('scroll', set);
+  window.addEventListener('resize', set);
+  window.addEventListener('orientationchange', () => {
+    requestAnimationFrame(() => requestAnimationFrame(set));
+  });
+}
+bindAppViewportHeight();
+
 const modeSel = document.querySelector<HTMLSelectElement>('#mode')!;
 const playersSel = document.querySelector<HTMLSelectElement>('#players')!;
 const diffSel = document.querySelector<HTMLSelectElement>('#diff')!;
@@ -53,9 +69,10 @@ function randomRoomId(): string {
 
 function timerConfig(key: string): TurnTimerConfig | false {
   if (key === 'off') return false;
-  const auto = key.endsWith('-auto');
-  const secs = Number(key.replace('-auto', '')) || 15;
-  const onTimeout: TurnTimerAutoAction = auto ? 'auto' : 'skip';
+  // Default: auto-play (roll + move a pin). Opt out with "10-skip".
+  const skip = key.endsWith('-skip');
+  const secs = Number(key.replace(/-(auto|skip)$/, '')) || 15;
+  const onTimeout: TurnTimerAutoAction = skip ? 'skip' : 'auto';
   return {
     enabled: true,
     durationMs: secs * 1000,
@@ -86,7 +103,7 @@ function readConfigFromUrl(): Partial<GameConfig> {
   }
   if (isTheme(theme)) out.theme = theme;
   if (roomId && /^[A-Z0-9]{4,12}$/i.test(roomId)) out.roomId = roomId.toUpperCase();
-  if (timer && /^(off|\d{1,2}(-auto)?)$/.test(timer)) out.timer = timer;
+  if (timer && /^(off|\d{1,2}(-(auto|skip))?)$/.test(timer)) out.timer = timer;
   return out;
 }
 
@@ -188,11 +205,18 @@ function start(cfg: GameConfig, demo?: 'star-stack') {
           mode: cfg.mode,
           players: cfg.players,
           aiDifficulty: cfg.aiDifficulty,
-          humanColor: 0,
+          // Random seat each game — not always red
+          humanColor: Math.floor(Math.random() * 4) as ColorId,
         });
 
+  document.body.classList.add('playing');
+  document.documentElement.style.overflow = 'hidden';
+  {
+    const h = window.visualViewport?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty('--app-vh', `${Math.round(h)}px`);
+  }
   handle = mountLudoRoom(mountEl, room, {
-    compact: true,
+    compact: false,
     sound: true,
     theme: cfg.theme,
     aiDelayMs: demo === 'star-stack' ? 60_000 : 600,
@@ -216,6 +240,7 @@ function start(cfg: GameConfig, demo?: 'star-stack') {
       console.info('[timer] miss', ctx.color, ctx.phase, ctx.turnId);
     },
   });
+  mountEl.querySelector('.ludo-sdk')?.classList.add('ludo-sdk--fill');
 
   if (demo === 'star-stack') {
     applyStarStackDemo(handle);

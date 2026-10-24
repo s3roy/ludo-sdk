@@ -403,7 +403,10 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     let id = input.roomId ?? randomId();
     while (rooms.has(id)) id = randomId();
     const maxPlayers = input.maxPlayers ?? 4;
-    const colors = seatColorsForCount(maxPlayers, 0);
+    const rng = opts.rng ?? Math.random;
+    // Random diagonal pair (2p) / seat set — first human is not always red
+    const anchor = Math.floor(rng() * 4) as ColorId;
+    const colors = seatColorsForCount(maxPlayers, anchor);
     const policy = normalizeRoomPolicy(input.policy);
     const room: InternalRoom = {
       id,
@@ -454,8 +457,10 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       return { ok: false, error: 'room_full' };
     }
     const taken = new Set([...room.players.values()].map((p) => p.color));
-    const color = room.colors.find((c) => !taken.has(c));
-    if (color == null) return { ok: false, error: 'no_seat' };
+    const free = room.colors.filter((c) => !taken.has(c));
+    if (!free.length) return { ok: false, error: 'no_seat' };
+    const rng = opts.rng ?? Math.random;
+    const color = free[Math.floor(rng() * free.length)]!;
 
     room.players.set(player.playerId, {
       playerId: player.playerId,
@@ -744,6 +749,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     if (!room) return { ok: false, error: 'room_not_found' };
 
     const used = new Set<ColorId>();
+    const rng = opts.rng ?? Math.random;
     for (const p of list) {
       let color = p.color;
       if (color != null) {
@@ -752,7 +758,8 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
           return { ok: false, error: 'bad_color' };
         }
       } else {
-        color = room.colors.find((c) => !used.has(c));
+        const free = room.colors.filter((c) => !used.has(c));
+        color = free[Math.floor(rng() * free.length)];
         if (color == null) {
           destroy(roomId, 'host');
           return { ok: false, error: 'no_seat' };

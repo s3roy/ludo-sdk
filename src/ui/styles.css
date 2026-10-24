@@ -386,12 +386,11 @@
   overflow: visible;
 }
 
-/* Soft track matching dice dock shape */
+/* Soft track matching dice dock shape — always a visible border */
 .ludo-sdk__timer-track {
-  stroke: color-mix(in srgb, #0785ff 28%, transparent);
+  stroke: color-mix(in srgb, #0785ff 40%, transparent);
   stroke-width: 3.5;
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  opacity: 1;
 }
 
 .ludo-sdk__timer-progress {
@@ -403,7 +402,6 @@
   filter: drop-shadow(0 0 4px color-mix(in srgb, #0785ff 65%, transparent));
 }
 
-.ludo-sdk__dice-wrap--timing .ludo-sdk__timer-track,
 .ludo-sdk__dice-wrap--timing .ludo-sdk__timer-progress {
   opacity: 1;
 }
@@ -744,6 +742,16 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.28s ease;
+  overflow: hidden;
+}
+
+.ludo-sdk__win-confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .ludo-sdk__win[hidden] {
@@ -756,9 +764,11 @@
 }
 
 .ludo-sdk__win-card {
-  width: min(280px, 100%);
+  position: relative;
+  z-index: 1;
+  width: min(300px, 100%);
   text-align: center;
-  padding: 22px 18px 16px;
+  padding: 20px 18px 16px;
   border-radius: var(--radius-card, 18px);
   background: var(--bg-panel);
   border: 1.5px solid color-mix(in srgb, var(--badge-gold) 55%, var(--border-panel));
@@ -771,10 +781,20 @@
   transform: translateY(0) scale(1);
 }
 
+.ludo-sdk__win-crown {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--badge-gold) 18%, transparent);
+  border: 2px solid color-mix(in srgb, var(--badge-gold) 55%, transparent);
+}
+
 .ludo-sdk__win-emoji {
-  font-size: 2.4rem;
+  font-size: 2rem;
   line-height: 1;
-  margin-bottom: 6px;
   animation: ludo-win-pop 0.55s ease;
 }
 
@@ -797,7 +817,7 @@
 
 .ludo-sdk__win-ranking {
   list-style: none;
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -843,8 +863,56 @@
 .ludo-sdk__win-rank--c2 .ludo-sdk__win-name { color: var(--player-yellow); }
 .ludo-sdk__win-rank--c3 .ludo-sdk__win-name { color: var(--player-blue); }
 
-.ludo-sdk__win-rematch {
-  width: 100%;
+.ludo-sdk__win-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ludo-sdk__win-btn {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, filter 0.15s ease, background 0.15s ease;
+}
+
+.ludo-sdk__win-btn:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.ludo-sdk__win-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1.5px solid color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+.ludo-sdk__win-btn--ghost:hover {
+  background: color-mix(in srgb, var(--bg-main) 40%, transparent);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+
+.ludo-sdk__win-btn--primary {
+  background: linear-gradient(180deg, var(--btn-roll-start) 0%, var(--badge-gold) 48%, var(--btn-roll-end) 100%);
+  color: var(--btn-text);
+  border: 1.5px solid var(--btn-border);
+  box-shadow: 0 3px 0 #c47f00;
+}
+
+.ludo-sdk__win-btn--primary:active:not(:disabled) {
+  box-shadow: 0 1px 0 #c47f00;
+}
+
+/* Single-button mode (hosted dismiss-only): primary spans full width */
+.ludo-sdk__win-actions--single {
+  grid-template-columns: 1fr;
 }
 
 @keyframes ludo-win-pop {
@@ -1077,15 +1145,42 @@
 }
 /* HUDs outside the board; gap below/above boxes clear of the yards */
 .ludo-sdk--theme-king .ludo-sdk__stage {
-  --king-hud-h: 48px;
-  --king-hud-gap: 12px;
+  --king-hud-h: clamp(40px, 6.5vw, 52px);
+  --king-hud-gap: clamp(8px, 1.8vw, 12px);
   width: 100%;
   max-width: none;
-  margin: 0;
+  margin: 0 auto;
   aspect-ratio: 1;
   padding: calc(var(--king-hud-h) + var(--king-hud-gap)) 0;
   box-sizing: border-box;
   overflow: visible;
+}
+/*
+ * Fill a parent that sizes the game (fullscreen / mobile shells).
+ * Safari breaks flex + aspect-ratio + max-height (board overflows / collapses).
+ * Absolute + inset + margin:auto keeps width/height as `auto` so aspect-ratio
+ * can resolve against max-width/max-height correctly.
+ */
+.ludo-sdk--theme-king.ludo-sdk--fill {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+.ludo-sdk--theme-king.ludo-sdk--fill .ludo-sdk__stage {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1;
+  margin: auto;
+  flex: unset;
 }
 .ludo-sdk--theme-king .ludo-sdk__board-wrap {
   position: relative;
@@ -1107,6 +1202,57 @@
   border-radius: 2px;
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
 }
+/* Screen-space yard names — outer rim like Ludo King (not path side, not in rotated SVG) */
+.ludo-sdk--theme-king .ludo-sdk__yard-tags {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.ludo-sdk--theme-king .ludo-sdk__yard-tag {
+  position: absolute;
+  font-family: Nunito, "Avenir Next", system-ui, sans-serif;
+  font-size: clamp(10px, 2.8vw, 13px);
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  line-height: 1;
+  text-shadow:
+    0 0 2px #1a1a1a,
+    0 1px 0 #1a1a1a,
+    1px 0 0 #1a1a1a,
+    0 -1px 0 #1a1a1a,
+    -1px 0 0 #1a1a1a,
+    1px 1px 0 #1a1a1a,
+    -1px 1px 0 #1a1a1a,
+    1px -1px 0 #1a1a1a,
+    -1px -1px 0 #1a1a1a;
+}
+/* Outer color band (~1 cell): above white well (top yards) / below white well (bottom).
+   Yard 6/15 → x 20%/80%. Inset enough to stay inside the board chrome. */
+.ludo-sdk--theme-king .ludo-sdk__yard-tag--tl {
+  left: 20%;
+  top: 3.4%;
+  transform: translate(-50%, 0);
+}
+.ludo-sdk--theme-king .ludo-sdk__yard-tag--tr {
+  left: 80%;
+  top: 3.4%;
+  transform: translate(-50%, 0);
+}
+.ludo-sdk--theme-king .ludo-sdk__yard-tag--bl {
+  left: 20%;
+  top: 96.6%;
+  bottom: auto;
+  transform: translate(-50%, -100%);
+}
+.ludo-sdk--theme-king .ludo-sdk__yard-tag--br {
+  left: 80%;
+  top: 96.6%;
+  bottom: auto;
+  transform: translate(-50%, -100%);
+}
 
 /* Corner HUDs — gold frame: pink tray (dice) + pin badge; timer on outer shell */
 .ludo-sdk--theme-king .ludo-sdk__hud {
@@ -1116,7 +1262,7 @@
   width: 96px;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud--empty {
-  opacity: 0.22;
+  opacity: 0.4;
   pointer-events: none;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud--tl { top: 0; left: 0; }
@@ -1129,7 +1275,7 @@
   position: relative;
   width: 100%;
   height: var(--king-hud-h, 48px);
-  padding: 3px; /* room for timer ring outside gold border */
+  padding: 0; /* SVG ring IS the border — no pad gap / double edge */
   box-sizing: border-box;
   overflow: visible;
 }
@@ -1141,31 +1287,25 @@
   pointer-events: none;
   z-index: 6;
   overflow: visible;
+  display: block;
 }
+/* Outer timer track = permanent gold border (one stroke, always on) */
 .ludo-sdk--theme-king .ludo-sdk__hud-shell .ludo-sdk__timer-track {
-  stroke: color-mix(in srgb, #e8c84a 55%, transparent);
-  stroke-width: 2.5;
-  opacity: 0;
+  stroke: #e8c84a;
+  stroke-width: 3;
+  opacity: 1;
   vector-effect: non-scaling-stroke;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud-shell .ludo-sdk__timer-progress {
   stroke: var(--timer-stroke, #ffc107);
-  stroke-width: 2.75;
+  stroke-width: 3;
   stroke-linecap: round;
   opacity: 0;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--timer-stroke, #ffc107) 70%, transparent));
 }
-.ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__timer-track,
 .ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__timer-progress {
   opacity: 1;
-}
-/* Gold card border stays solid while timer runs around it */
-.ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__hud-card {
-  border-color: #e8c84a;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, #e8c84a 35%, transparent),
-    0 3px 8px rgba(0, 0, 0, 0.45);
 }
 .ludo-sdk--theme-king .ludo-sdk__hud-shell--urgent .ludo-sdk__timer-progress {
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--timer-red) 65%, transparent));
@@ -1179,15 +1319,18 @@
   align-items: stretch;
   flex-direction: row;
   background: linear-gradient(180deg, #2a4a7a 0%, #1e3a6e 100%);
-  border: 2.5px solid #e8c84a;
-  border-radius: 8px;
+  /* No CSS gold border — SVG track is the only border (avoids double/ghost edges) */
+  border: none;
+  border-radius: 7px;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  width: 100%;
-  height: 100%;
   box-sizing: border-box;
   position: relative;
   z-index: 1;
+  /* Inset so the 3px SVG stroke sits on the outer edge */
+  margin: 2.5px;
+  width: calc(100% - 5px);
+  height: calc(100% - 5px);
 }
 .ludo-sdk--theme-king .ludo-sdk__hud--tr .ludo-sdk__hud-card,
 .ludo-sdk--theme-king .ludo-sdk__hud--br .ludo-sdk__hud-card {
@@ -1356,21 +1499,28 @@
   backdrop-filter: blur(8px);
 }
 .ludo-sdk--theme-king .ludo-sdk__win-card {
-  width: min(300px, 92%);
-  padding: 24px 20px 18px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #1e3a6e 0%, #152a55 100%);
+  width: min(312px, 92%);
+  padding: 22px 18px 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #24457a 0%, #152a55 100%);
   border: 2.5px solid #e8c84a;
   box-shadow:
     0 0 0 3px rgba(15, 35, 78, 0.9),
     0 20px 40px rgba(0, 0, 0, 0.55);
 }
+.ludo-sdk--theme-king .ludo-sdk__win-crown {
+  background: radial-gradient(circle at 50% 35%, #ffe082 0%, #ffb300 55%, #e68900 100%);
+  border: 2.5px solid #fff3c4;
+  box-shadow:
+    0 4px 0 #c47f00,
+    0 8px 16px rgba(0, 0, 0, 0.35);
+}
 .ludo-sdk--theme-king .ludo-sdk__win-emoji {
-  font-size: 2.6rem;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+  font-size: 1.85rem;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.25));
 }
 .ludo-sdk--theme-king .ludo-sdk__win-title {
-  font-size: 1.45rem;
+  font-size: 1.4rem;
   color: #ffffff;
 }
 .ludo-sdk--theme-king .ludo-sdk__win-sub {
@@ -1381,13 +1531,26 @@
   border-color: rgba(232, 200, 74, 0.28);
   border-radius: 10px;
 }
-.ludo-sdk--theme-king .ludo-sdk__win-rematch {
-  background: linear-gradient(180deg, #ffc107 0%, #ff9800 100%);
+.ludo-sdk--theme-king .ludo-sdk__win-btn--ghost {
+  background: rgba(8, 18, 48, 0.45);
+  color: #d7e4f8;
+  border: 1.5px solid rgba(215, 228, 248, 0.35);
+  border-radius: 14px;
+}
+.ludo-sdk--theme-king .ludo-sdk__win-btn--ghost:hover {
+  background: rgba(8, 18, 48, 0.7);
+  border-color: rgba(232, 200, 74, 0.55);
+  color: #fff;
+}
+.ludo-sdk--theme-king .ludo-sdk__win-btn--primary {
+  background: linear-gradient(180deg, #ffe34d 0%, #ffc107 48%, #ff9800 100%);
   color: #0f234e;
-  border: none;
-  font-weight: 900;
-  border-radius: 12px;
-  box-shadow: 0 3px 0 #e68900;
+  border: 1.5px solid #ffd65a;
+  border-radius: 14px;
+  box-shadow: 0 3px 0 #c47f00;
+}
+.ludo-sdk--theme-king .ludo-sdk__win-btn--primary:active:not(:disabled) {
+  box-shadow: 0 1px 0 #c47f00;
 }
 .ludo-sdk--theme-king .ludo-sdk__pin-foot {
   fill: none;

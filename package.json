@@ -37,6 +37,8 @@
   ],
   "scripts": {
     "dev": "vite --config vite.playground.config.ts",
+    "multiplayer:server": "npx tsx playground/multiplayer-server.ts",
+    "multiplayer": "npm run multiplayer:server",
     "build": "tsc --noEmit && vite build && vite build --config vite.playground.config.ts",
     "build:sdk": "tsc --noEmit && vite build",
     "build:web": "vite build --config vite.playground.config.ts",
@@ -63,9 +65,11 @@
   ],
   "devDependencies": {
     "@types/node": "^24.5.2",
+    "@types/ws": "^8.18.2",
     "tsx": "^4.20.5",
     "typescript": "^5.8.3",
     "vite": "^7.1.5",
-    "vite-plugin-dts": "^4.5.4"
+    "vite-plugin-dts": "^4.5.4",
+    "ws": "^8.22.0"
   }
 }

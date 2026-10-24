@@ -6,7 +6,14 @@ import {
   type AiDifficulty,
 } from '../core/ai';
 import { LudoSounds, type SoundOptions } from '../audio/sounds';
-import { COLOR_NAMES, seatColorsForCount, tokensToWin } from '../core/constants';
+import {
+  COLOR_HEX,
+  COLOR_HIGHLIGHT,
+  COLOR_NAMES,
+  seatColorsForCount,
+  tokensToWin,
+} from '../core/constants';
+import { fireWinConfetti, type ConfettiHandle } from '../ui/confetti';
 import { createGame, LudoGame } from '../core/game';
 import type {
   ColorId,
@@ -326,6 +333,7 @@ export function mountLudo(
   const winSub = root.querySelector<HTMLElement>('[data-ludo-win-sub]')!;
   const winRanking = root.querySelector<HTMLOListElement>('[data-ludo-win-ranking]')!;
   const rematchBtn = root.querySelector<HTMLButtonElement>('[data-ludo-rematch]')!;
+  const winCloseBtn = root.querySelector<HTMLButtonElement>('[data-ludo-win-close]')!;
 
   /** King: dice lives inside the active HUD tray. Other themes: always in controls. */
   function placeDiceDock(turnColor: ColorId) {
@@ -342,8 +350,11 @@ export function mountLudo(
   }
 
   let winShownFor: ColorId | null = null;
+  let winConfetti: ConfettiHandle | null = null;
 
   function hideWinOverlay() {
+    winConfetti?.stop();
+    winConfetti = null;
     winEl.hidden = true;
     winEl.classList.remove('ludo-sdk__win--show');
     winShownFor = null;
@@ -384,15 +395,29 @@ export function mountLudo(
         </li>`;
       })
       .join('');
-    // Offline: Play again. Hosted without onRematch: dismiss only.
+    // Offline / onRematch: Close + Play again. Hosted without rematch: Close only.
     const canRematch = !opts.controlled || !!opts.onRematch;
+    const actions = rematchBtn.closest('.ludo-sdk__win-actions');
+    winCloseBtn.hidden = !canRematch;
     rematchBtn.hidden = false;
-    rematchBtn.textContent = canRematch ? 'Play again' : 'OK';
+    rematchBtn.textContent = canRematch ? 'Play again' : 'Close';
     rematchBtn.dataset.mode = canRematch ? 'rematch' : 'dismiss';
+    actions?.classList.toggle('ludo-sdk__win-actions--single', !canRematch);
+    winConfetti?.stop();
     winEl.hidden = false;
-    requestAnimationFrame(() => winEl.classList.add('ludo-sdk__win--show'));
+    requestAnimationFrame(() => {
+      winEl.classList.add('ludo-sdk__win--show');
+      winConfetti = fireWinConfetti(winEl, [
+        COLOR_HEX[winner],
+        COLOR_HIGHLIGHT[winner],
+      ]);
+    });
     return true;
   }
+
+  winCloseBtn.addEventListener('click', () => {
+    hideWinOverlay();
+  });
 
   rematchBtn.addEventListener('click', () => {
     const mode = rematchBtn.dataset.mode ?? 'rematch';
@@ -426,7 +451,14 @@ export function mountLudo(
     return (first ?? 0) as ColorId;
   }
 
-  /** Keep the local seat at bottom-left; remap King HUD corners to match. */
+  function yardTagLabel(color: ColorId, facing: ColorId): string {
+    if (color === facing) return 'You';
+    if (color === ((facing + 1) % 4)) return 'Computer 2';
+    if (color === ((facing + 2) % 4)) return 'Computer 3';
+    return 'Computer 4';
+  }
+
+  /** Keep the local seat at bottom-left; remap King HUD + yard tags to match. */
   function applyBoardFacing() {
     const facing = facingColor();
     const svg = boardWrap.querySelector<SVGSVGElement>('svg.ludo-sdk__board');
@@ -438,21 +470,42 @@ export function mountLudo(
     boardWrap.dataset.facing = String(facing);
     for (let c = 0; c < 4; c++) {
       const color = c as ColorId;
+      const corner = visualCornerForColor(color, facing);
       const hud = root.querySelector<HTMLElement>(`[data-ludo-hud="${color}"]`);
-      if (!hud) continue;
-      for (const corner of BOARD_CORNERS) {
-        hud.classList.remove(`ludo-sdk__hud--${corner}`);
+      if (hud) {
+        for (const k of BOARD_CORNERS) {
+          hud.classList.remove(`ludo-sdk__hud--${k}`);
+        }
+        hud.classList.add(`ludo-sdk__hud--${corner}`);
       }
-      hud.classList.add(
-        `ludo-sdk__hud--${visualCornerForColor(color, facing)}`,
+      const tag = boardWrap.querySelector<HTMLElement>(
+        `[data-yard-tag="${color}"]`,
       );
+      if (tag) {
+        for (const k of BOARD_CORNERS) {
+          tag.classList.remove(`ludo-sdk__yard-tag--${k}`);
+        }
+        tag.classList.add(`ludo-sdk__yard-tag--${corner}`);
+        tag.textContent = yardTagLabel(color, facing);
+      }
     }
   }
 
   function ensureBoard() {
     if (boardReady) return;
+    const facing = facingColor();
+    const tags =
+      theme.shape.flatYards
+        ? `<div class="ludo-sdk__yard-tags" aria-hidden="true">${([0, 1, 2, 3] as ColorId[])
+            .map((c) => {
+              const corner = visualCornerForColor(c, facing);
+              return `<span class="ludo-sdk__yard-tag ludo-sdk__yard-tag--${corner}" data-yard-tag="${c}">${yardTagLabel(c, facing)}</span>`;
+            })
+            .join('')}</div>`
+        : '';
     boardWrap.innerHTML =
-      renderBoardBase(theme, { facingColor: facingColor() }) +
+      renderBoardBase(theme, { facingColor: facing }) +
+      tags +
       `<div class="ludo-sdk__toast" data-ludo-toast></div>`;
     boardReady = true;
     applyBoardFacing();
@@ -735,8 +788,6 @@ export function mountLudo(
       state,
     };
     stopTurnTimer(true);
-    showToast('Time!');
-    sounds.play('deny');
 
     // Visual timer runs for everyone; skip/auto only enforces on your seats
     let action: TurnTimerAutoAction = canControl(state.currentColor)
@@ -749,6 +800,15 @@ export function mountLudo(
       } catch {
         /* keep default */
       }
+    }
+    if (action === 'auto') {
+      showToast('Auto play');
+      sounds.play('turn');
+    } else if (action === 'skip') {
+      showToast('Time!');
+      sounds.play('deny');
+    } else {
+      showToast('Time!');
     }
     await runTimeoutAction(action);
     timerFiring = false;
@@ -924,7 +984,7 @@ export function mountLudo(
         syncTimerPauseForBusy();
         paintChrome(state);
         // Place tokens at post-move state, then walk the mover cell-by-cell
-        syncTokens(tokensLayer(), state, [], theme);
+        syncTokens(tokensLayer(), state, [], theme, facingColor());
         const tok = state.tokens.find((t) => t.id === event.tokenId);
         const slot = tok?.slot ?? 0;
         await animateLegalMove(
@@ -1027,7 +1087,7 @@ export function mountLudo(
 
   function paint(state: GameState, event: GameEvent | null) {
     const legal = game.legalMoves();
-    syncTokens(tokensLayer(), state, legal, theme);
+    syncTokens(tokensLayer(), state, legal, theme, facingColor());
     paintChrome(state);
     paintKingHuds(state);
 
@@ -1528,14 +1588,21 @@ function shellHtml(mode: GameMode, showPlayers: boolean): string {
     </div>
     ${showPlayers ? '<div class="ludo-sdk__players" data-ludo-players></div>' : ''}
     <div class="ludo-sdk__win" data-ludo-win hidden>
-      <div class="ludo-sdk__win-card" role="dialog" aria-labelledby="ludo-win-title">
-        <div class="ludo-sdk__win-emoji" aria-hidden="true">🏆</div>
+      <div class="ludo-sdk__win-card" role="dialog" aria-labelledby="ludo-win-title" aria-modal="true">
+        <div class="ludo-sdk__win-crown" aria-hidden="true">
+          <span class="ludo-sdk__win-emoji">🏆</span>
+        </div>
         <h3 class="ludo-sdk__win-title" id="ludo-win-title" data-ludo-win-title>Wins!</h3>
         <p class="ludo-sdk__win-sub" data-ludo-win-sub></p>
         <ol class="ludo-sdk__win-ranking" data-ludo-win-ranking></ol>
-        <button type="button" class="ludo-sdk__btn ludo-sdk__win-rematch" data-ludo-rematch>
-          Play again
-        </button>
+        <div class="ludo-sdk__win-actions">
+          <button type="button" class="ludo-sdk__win-btn ludo-sdk__win-btn--ghost" data-ludo-win-close>
+            Close
+          </button>
+          <button type="button" class="ludo-sdk__win-btn ludo-sdk__win-btn--primary" data-ludo-rematch>
+            Play again
+          </button>
+        </div>
       </div>
     </div>
   `;

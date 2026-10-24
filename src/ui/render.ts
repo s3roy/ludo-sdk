@@ -26,7 +26,7 @@ export function renderBoardBase(
   const theme = typeof themeInput === 'string' || !themeInput
     ? getTheme(themeInput)
     : themeInput;
-  const facing = (baseOpts?.facingColor ?? 0) as ColorId;
+  void baseOpts; // facingColor used by HTML yard tags in mount, not SVG
   const YARD = theme.players;
   const sh = theme.shape;
   const parts: string[] = [];
@@ -111,26 +111,8 @@ export function renderBoardBase(
         );
       }
     }
-    if (sh.flatYards) {
-      // "You" follows the facing seat (bottom-left after board rotate)
-      const label =
-        color === facing
-          ? 'You'
-          : color === ((facing + 1) % 4)
-            ? 'Computer 2'
-            : color === ((facing + 2) % 4)
-              ? 'Computer 3'
-              : 'Computer 4';
-      const lx = (gx + 3) * CELL;
-      const ly = gy === 0 ? gy * CELL + 14 : (gy + 6) * CELL - 8;
-      // Counter-rotate so label stays upright after board facing rotate
-      const upright = facing * 90;
-      parts.push(
-        `<g transform="rotate(${upright} ${lx} ${ly})">
-          <text class="ludo-sdk__yard-label" data-yard-color="${color}" x="${lx}" y="${ly}" text-anchor="middle" font-size="11" font-weight="800" font-family="Nunito, Avenir Next, sans-serif" fill="#FFFFFF" stroke="#1a1a1a" stroke-width="2.2" paint-order="stroke fill">${label}</text>
-        </g>`,
-      );
-    }
+    // Yard name tags are HTML overlays in mount (screen-space) — SVG text
+    // inside a CSS-rotated board always drifts to the outer rim.
   }
 
   const lift = sh.tileLift ? ' filter="url(#ludoTileLift)"' : '';
@@ -344,6 +326,7 @@ export function tokenMarkup(
   token: Token,
   playable: boolean,
   themeInput?: ThemePalette | string,
+  facingColor: ColorId = 0,
 ): string {
   const theme = typeof themeInput === 'string' || !themeInput
     ? getTheme(themeInput)
@@ -397,7 +380,10 @@ export function tokenMarkup(
       'M0 -50 C-11 -50 -18 -42 -18 -32 C-18 -20 -6 -8 0 5 C6 -8 18 -20 18 -32 C18 -42 11 -50 0 -50Z';
     const shellInner =
       'M0 -48 C-10 -48 -16 -41 -16 -32 C-16 -22 -6 -11 0 3.2 C6 -11 16 -22 16 -32 C16 -41 10 -48 0 -48Z';
-    return `<g class="${cls}" data-token-id="${token.id}" data-pin="lk20" transform="translate(${x}, ${ty})">
+    // Board CSS rotate(-facing*90) flips pins tip-up — counter-rotate figure only
+    // (foot stays in board space so stack inverse-offset still centers on the cell).
+    const upright = facingColor * 90;
+    return `<g class="${cls}" data-token-id="${token.id}" data-pin="lk21" data-facing="${facingColor}" transform="translate(${x}, ${ty})">
       <defs>
         <linearGradient id="${gid}Shell" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="#FFFFFF"/>
@@ -406,21 +392,23 @@ export function tokenMarkup(
         </linearGradient>
         ${gemDefs}
       </defs>
-      <!-- Foot + playable ring under the figure (DOM order only — do not reshape the pin) -->
+      <!-- Foot + playable ring — board-aligned (not counter-rotated) -->
       <g class="ludo-sdk__pin-base">
         <circle class="ludo-sdk__pin-foot" cx="0" cy="0" r="${footR}" fill="none" stroke="#6B1F2A" stroke-width="1.8"/>
         <circle class="ludo-sdk__token-ring" cx="0" cy="0" r="${ringR}" fill="none"
           stroke="#FFFFFF" stroke-width="1.55" stroke-dasharray="0.95 2.6" stroke-linecap="round"/>
       </g>
-      <g class="ludo-sdk__pin-figure" transform="scale(0.44)">
-        <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="#29353B" stroke="#111D24" stroke-width="1.6" d="${shellOuter}"/>
-        <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="url(#${gid}Shell)" stroke="#FFFFFF" stroke-width="1" d="${shellInner}"/>
-        <circle cx="0" cy="-33" r="12.5" fill="${pin.gemWell}"/>
-        <circle class="ludo-sdk__pawn-head" cx="0" cy="-34" r="11" fill="${gemFill}" stroke="${pin.gemStroke}" stroke-width="1.5"/>
-        <ellipse cx="-4" cy="-40" rx="4" ry="2.5" fill="#FFFFFF" opacity="${pin.hi}" transform="rotate(-30 -4 -40)"/>
+      <g class="ludo-sdk__pin-upright" transform="rotate(${upright})">
+        <g class="ludo-sdk__pin-figure" transform="scale(0.44)">
+          <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="#29353B" stroke="#111D24" stroke-width="1.6" d="${shellOuter}"/>
+          <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="url(#${gid}Shell)" stroke="#FFFFFF" stroke-width="1" d="${shellInner}"/>
+          <circle cx="0" cy="-33" r="12.5" fill="${pin.gemWell}"/>
+          <circle class="ludo-sdk__pawn-head" cx="0" cy="-34" r="11" fill="${gemFill}" stroke="${pin.gemStroke}" stroke-width="1.5"/>
+          <ellipse cx="-4" cy="-40" rx="4" ry="2.5" fill="#FFFFFF" opacity="${pin.hi}" transform="rotate(-30 -4 -40)"/>
+        </g>
+        <circle class="ludo-sdk__token-hit" cx="0" cy="-5" r="14" fill="transparent"/>
+        ${label}
       </g>
-      <circle class="ludo-sdk__token-hit" cx="0" cy="-5" r="14" fill="transparent"/>
-      ${label}
     </g>`;
   }
 
@@ -463,10 +451,12 @@ export function syncTokens(
   state: GameState,
   legal: LegalMove[],
   themeInput?: ThemePalette | string,
+  facingColor: ColorId = 0,
 ): { moved: string[]; captured: string[] } {
   const theme = typeof themeInput === 'string' || !themeInput
     ? getTheme(themeInput)
     : themeInput;
+  const upright = facingColor * 90;
   const playable = new Set(legal.map((m) => m.tokenId));
   const moved: string[] = [];
   const existing = new Map<string, SVGGElement>();
@@ -517,7 +507,8 @@ export function syncTokens(
     if (
       node &&
       isPin &&
-      (node.getAttribute('data-pin') !== 'lk20' ||
+      (node.getAttribute('data-pin') !== 'lk21' ||
+        !node.querySelector('.ludo-sdk__pin-upright') ||
         !node.querySelector('.ludo-sdk__pin-base .ludo-sdk__token-ring'))
     ) {
       node.remove();
@@ -532,7 +523,7 @@ export function syncTokens(
     if (!node) {
       layer.insertAdjacentHTML(
         'beforeend',
-        tokenMarkup(token, playable.has(token.id), theme),
+        tokenMarkup(token, playable.has(token.id), theme, facingColor),
       );
       node = layer.querySelector(`[data-token-id="${token.id}"]`) as SVGGElement;
       placeTokenAt(node, x, y);
@@ -571,6 +562,11 @@ export function syncTokens(
     node.classList.toggle('ludo-sdk__token--stack-under', under);
     // Foot + white dash stay on CELL center; tips fan via placeTokenAt offset.
     if (isPin) {
+      const uprightEl = node.querySelector('.ludo-sdk__pin-upright');
+      if (uprightEl) {
+        uprightEl.setAttribute('transform', `rotate(${upright})`);
+      }
+      node.setAttribute('data-facing', String(facingColor));
       const baseEl = node.querySelector('.ludo-sdk__pin-base');
       if (baseEl) {
         const onPath =
