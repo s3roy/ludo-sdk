@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Multiplayer · Ludo Rush SDK</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Nunito", system-ui, sans-serif;
+        --bg: #07152e;
+        --bg-outer: #172642;
+        --card: #0b1933;
+        --text: #f8fafc;
+        --muted: #8192b0;
+        --line: #173d78;
+        --accent: #ffc21a;
+        --btn-roll-start: #ffe34d;
+        --btn-roll-end: #ffae00;
+        --btn-text: #10213c;
+      }
+      * { box-sizing: border-box; }
+      :root {
+        --app-vh: 100dvh;
+        --safe-t: env(safe-area-inset-top, 0px);
+        --safe-b: env(safe-area-inset-bottom, 0px);
+        --safe-l: env(safe-area-inset-left, 0px);
+        --safe-r: env(safe-area-inset-right, 0px);
+      }
+      html {
+        height: 100%;
+        height: -webkit-fill-available;
+      }
+      body {
+        margin: 0;
+        min-height: 100%;
+        min-height: 100dvh;
+        min-height: -webkit-fill-available;
+        background:
+          radial-gradient(ellipse 90% 60% at 50% -10%, #1a3a6b 0%, transparent 50%),
+          linear-gradient(180deg, var(--bg-outer) 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+      /* Safari-safe immersive shell once the match starts */
+      body.playing {
+        overflow: hidden;
+        background: #0f234e;
+        overscroll-behavior: none;
+      }
+      body.playing .page {
+        position: fixed;
+        inset: 0;
+        max-width: none;
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        height: -webkit-fill-available;
+        height: var(--app-vh);
+        margin: 0;
+        padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+        gap: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      body.playing .brand,
+      body.playing aside.panel {
+        display: none !important;
+      }
+      body.playing .panel--stage {
+        position: relative;
+        min-height: 0;
+        min-width: 0;
+        height: 100%;
+        padding: 0;
+        overflow: hidden;
+      }
+      body.playing #stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      body.playing #stage .ludo-sdk {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+      }
+      .page {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 16px 14px 36px;
+        display: grid;
+        gap: 14px;
+      }
+      @media (min-width: 860px) {
+        .page {
+          grid-template-columns: 1fr 300px;
+          align-items: start;
+          padding-top: 24px;
+        }
+      }
+      .brand {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px 16px;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 900;
+      }
+      .brand h1 span { color: var(--accent); }
+      .brand a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.78rem;
+        font-weight: 800;
+      }
+      .brand a:hover { color: var(--text); }
+      .panel {
+        background: color-mix(in srgb, var(--card) 88%, transparent);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 16px;
+      }
+      .panel--stage {
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+      #stage {
+        display: flex;
+        justify-content: center;
+        min-height: 280px;
+      }
+      #mount:empty::before {
+        content: "Create or join a room to play…";
+        display: block;
+        padding: 48px 16px;
+        text-align: center;
+        color: var(--muted);
+        font-weight: 800;
+      }
+      h2 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 900; }
+      .sub {
+        color: var(--muted);
+        font-size: 0.78rem;
+        margin: 0 0 14px;
+        font-weight: 700;
+        line-height: 1.4;
+      }
+      label {
+        display: block;
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-bottom: 4px;
+        font-weight: 800;
+      }
+      .field { margin-bottom: 10px; }
+      input, select, button {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid #254a82;
+        background: #10203b;
+        color: var(--text);
+        font: inherit;
+        font-weight: 700;
+      }
+      button { cursor: pointer; }
+      button.primary {
+        border: 1.5px solid #ffd65a;
+        background: linear-gradient(180deg, var(--btn-roll-start) 0%, var(--accent) 48%, var(--btn-roll-end) 100%);
+        color: var(--btn-text);
+        font-weight: 900;
+        margin-top: 4px;
+        box-shadow: 0 4px 0 #c47f00;
+      }
+      button.primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #c47f00; }
+      button.ghost {
+        margin-top: 8px;
+        background: #10203b;
+      }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      .status {
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: var(--muted);
+        margin: 0 0 10px;
+        min-height: 1.2em;
+      }
+      .status.ok { color: #7dffa0; }
+      .status.err { color: #ff8b8b; }
+      .room-code {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 1.4rem;
+        letter-spacing: 0.18em;
+        text-align: center;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px dashed #254a82;
+        margin-bottom: 10px;
+        font-weight: 900;
+        color: var(--accent);
+        user-select: all;
+      }
+      .seat-list {
+        list-style: none;
+        margin: 0 0 12px;
+        padding: 0;
+        display: grid;
+        gap: 6px;
+      }
+      .seat-list li {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: #10203b;
+        font-size: 0.82rem;
+        font-weight: 800;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+      }
+      .hint {
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-top: 12px;
+        line-height: 1.45;
+        font-weight: 700;
+      }
+      #toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%) translateY(20px);
+        background: #0b1933ee;
+        border: 1px solid var(--line);
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-weight: 800;
+        font-size: 0.85rem;
+        opacity: 0;
+        pointer-events: none;
+        transition: 0.2s ease;
+        z-index: 50;
+      }
+      #toast.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="brand">
+        <h1>Ludo <span>Multiplayer</span></h1>
+        <a href="./">← Offline playground</a>
+      </header>
+
+      <section class="panel panel--stage">
+        <div id="stage"><div id="mount"></div></div>
+      </section>
+
+      <aside class="panel">
+        <h2>Lobby</h2>
+        <p class="sub">Two browsers · same Wi‑Fi or localhost · host-authoritative.</p>
+        <p class="status" id="status">Connecting…</p>
+
+        <div class="field">
+          <label for="name">Your name</label>
+          <input id="name" maxlength="16" placeholder="Ada" value="Player" />
+        </div>
+        <div class="field">
+          <label for="mode">Mode</label>
+          <select id="mode">
+            <option value="rush" selected>Rush</option>
+            <option value="classic">Classic</option>
+            <option value="blitz">Blitz</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="maxPlayers">Seats</label>
+          <select id="maxPlayers">
+            <option value="2" selected>2 players</option>
+            <option value="3">3 players</option>
+            <option value="4">4 players</option>
+          </select>
+        </div>
+
+        <button class="primary" id="createBtn" type="button">Create room</button>
+
+        <div class="field" style="margin-top:14px">
+          <label for="joinCode">Room code</label>
+          <input id="joinCode" maxlength="8" placeholder="ABC123" style="text-transform:uppercase;letter-spacing:0.12em" />
+        </div>
+        <button class="ghost" id="joinBtn" type="button">Join room</button>
+
+        <div id="lobbyBox" hidden>
+          <div class="room-code" id="roomCode">————</div>
+          <ul class="seat-list" id="seatList"></ul>
+          <p class="status" id="myColor">Your color: —</p>
+          <button class="primary" id="startBtn" type="button">Start game</button>
+          <button class="ghost" id="leaveBtn" type="button">Leave</button>
+        </div>
+
+        <p class="hint">
+          Seat color is random (not always red). Create → copy code → open this page in another tab/phone → Join → Start.
+          Server: <code>ws://localhost:8787</code>
+        </p>
+      </aside>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="./multi.ts"></script>
+  </body>
+</html>

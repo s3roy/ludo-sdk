@@ -50,7 +50,7 @@ export type TurnTimerConfig = {
   showRing?: boolean;
   /**
    * Built-in timeout behaviour when `onTurnTimeout` does not override.
-   * Default `'skip'` offline, `'none'` when `controlled`.
+   * Default `'auto'` offline (roll + pick a pin), `'none'` when `controlled`.
    * Only applied to interactive (your) seats.
    */
   onTimeout?: TurnTimerAutoAction;
@@ -84,7 +84,7 @@ export const DEFAULT_TURN_TIMER: Required<
   durationMs: 15_000,
   appliesTo: 'all',
   showRing: true,
-  onTimeout: 'skip',
+  onTimeout: 'auto',
   pauseWhileBusy: true,
 };
 
@@ -106,7 +106,7 @@ export function normalizeTurnTimer(
     return {
       ...DEFAULT_TURN_TIMER,
       enabled: false,
-      onTimeout: controlled ? 'none' : 'skip',
+      onTimeout: controlled ? 'none' : 'auto',
     };
   }
   return {
@@ -114,7 +114,7 @@ export function normalizeTurnTimer(
     durationMs: Math.max(1000, Math.floor(input.durationMs ?? 15_000)),
     appliesTo: input.appliesTo ?? 'all',
     showRing: input.showRing !== false,
-    onTimeout: input.onTimeout ?? (controlled ? 'none' : 'skip'),
+    onTimeout: input.onTimeout ?? (controlled ? 'none' : 'auto'),
     pauseWhileBusy: input.pauseWhileBusy !== false,
   };
 }
@@ -210,9 +210,21 @@ export function setTimerRingProgress(
   wrap?.classList.toggle('ludo-sdk__hud-shell--timing', active && isHud);
   const r = Math.min(1, Math.max(0, ratio));
   const urgency = 1 - r;
+  // King outer HUD uses gold → hot orange; dice dock uses blue → red
+  const stroke = isHud
+    ? r > 0.35
+      ? '#ffc107'
+      : r > 0.15
+        ? '#ff9800'
+        : '#ff5a3c'
+    : timerStrokeForRatio(r);
   if (wrap) {
     wrap.style.setProperty('--timer-urgency', urgency.toFixed(3));
-    wrap.style.setProperty('--timer-stroke', active ? timerStrokeForRatio(r) : 'transparent');
+    // Idle HUD keeps gold so the track reads as a permanent border
+    wrap.style.setProperty(
+      '--timer-stroke',
+      active ? stroke : isHud ? '#e8c84a' : 'transparent',
+    );
     wrap.classList.toggle('ludo-sdk__dice-wrap--urgent', active && !isHud && r <= 0.35);
     wrap.classList.toggle('ludo-sdk__dice-wrap--critical', active && !isHud && r <= 0.15);
     wrap.classList.toggle('ludo-sdk__hud-shell--urgent', active && isHud && r <= 0.35);
@@ -225,20 +237,13 @@ export function setTimerRingProgress(
   const len = Number(progress.getAttribute('pathLength') || TIMER_RING_C);
   // pathLength normalizes dash so countdown is even around the rounded box
   progress.style.strokeDasharray = String(len);
-  progress.style.strokeDashoffset = String(len * (1 - r));
+  // Idle: full path under the track (hidden) so the next turn starts complete
+  progress.style.strokeDashoffset = String(active ? len * (1 - r) : 0);
   progress.style.opacity = active ? '1' : '0';
-  // King outer HUD uses gold → hot orange; dice dock uses blue → red
-  const stroke = isHud
-    ? r > 0.35
-      ? '#ffc107'
-      : r > 0.15
-        ? '#ff9800'
-        : '#ff5a3c'
-    : timerStrokeForRatio(r);
   progress.style.stroke = active ? stroke : '';
-  if (wrap && isHud) {
-    wrap.style.setProperty('--timer-stroke', active ? stroke : 'transparent');
-  }
+  // Track is always the visible border — never hide it from JS
+  const track = ringHost.querySelector<SVGRectElement>('.ludo-sdk__timer-track');
+  if (track) track.style.opacity = '1';
 }
 
 /**
@@ -256,7 +261,9 @@ export function hudTimerRingMarkup(): string {
   const len = Math.round(
     2 * (iw + ih - 4 * rx) + 2 * Math.PI * rx,
   );
-  return `<svg class="ludo-sdk__timer-ring ludo-sdk__timer-ring--hud" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+  // preserveAspectRatio=none: shell size is dynamic (clamp height) — "meet"
+  // letterboxes and misaligns the gold border (ghost/double edges in Safari).
+  return `<svg class="ludo-sdk__timer-ring ludo-sdk__timer-ring--hud" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
     <rect class="ludo-sdk__timer-track" x="${pad}" y="${pad}" width="${iw}" height="${ih}" rx="${rx}" ry="${rx}" fill="none"/>
     <rect class="ludo-sdk__timer-progress" data-ludo-timer-progress
       x="${pad}" y="${pad}" width="${iw}" height="${ih}" rx="${rx}" ry="${rx}" fill="none"

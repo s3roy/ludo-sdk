@@ -25,9 +25,16 @@
         --btn-text: #10213c;
       }
       * { box-sizing: border-box; }
+      :root { --app-vh: 100dvh; --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px); }
+      html {
+        height: 100%;
+        height: -webkit-fill-available;
+      }
+      html, body { margin: 0; }
       body {
-        margin: 0;
+        min-height: 100%;
         min-height: 100dvh;
+        min-height: -webkit-fill-available;
         background:
           radial-gradient(ellipse 90% 60% at 50% -10%, #1a3a6b 0%, transparent 50%),
           linear-gradient(180deg, var(--bg-outer) 0%, var(--bg) 100%);
@@ -46,6 +53,103 @@
           align-items: start;
           padding-top: 24px;
         }
+      }
+      /* Immersive play: fixed shell (Safari-safe) + fill-mode square board */
+      body.playing {
+        overflow: hidden;
+        background: #0f234e;
+        overscroll-behavior: none;
+      }
+      body.playing .page {
+        position: fixed;
+        inset: 0;
+        max-width: none;
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        height: -webkit-fill-available;
+        height: var(--app-vh);
+        max-height: none;
+        margin: 0;
+        padding:
+          var(--safe-t)
+          var(--safe-r)
+          var(--safe-b)
+          var(--safe-l);
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto;
+        gap: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      body.playing .brand {
+        padding: 6px 12px;
+        z-index: 4;
+        flex-shrink: 0;
+      }
+      body.playing .brand h1 { font-size: 1rem; }
+      body.playing .lede { display: none; }
+      body.playing .panel--stage {
+        position: relative;
+        min-height: 0;
+        min-width: 0;
+        height: 100%;
+        padding: 0;
+        overflow: hidden;
+      }
+      body.playing #stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        min-height: 0;
+        padding: 0;
+      }
+      body.playing #stage .ludo-sdk {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+      }
+      body.playing aside.panel {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 8;
+        max-height: 42dvh;
+        overflow: auto;
+        border-radius: 20px 20px 0 0;
+        transform: translateY(calc(100% - 48px));
+        transition: transform 0.22s ease;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -8px 32px #00000066;
+      }
+      body.playing aside.panel:focus-within,
+      body.playing aside.panel:hover,
+      body.playing aside.panel.open {
+        transform: translateY(0);
+      }
+      body.playing aside.panel h2::after {
+        content: " · drag up for settings";
+        font-size: 0.72rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      @media (min-width: 900px) {
+        body.playing .page {
+          grid-template-columns: 1fr 300px;
+          grid-template-rows: auto 1fr;
+        }
+        body.playing .brand { grid-column: 1 / -1; }
+        body.playing aside.panel {
+          position: relative;
+          transform: none;
+          max-height: none;
+          border-radius: 0;
+          box-shadow: none;
+          overflow: auto;
+        }
+        body.playing aside.panel h2::after { content: none; }
       }
       .brand {
         grid-column: 1 / -1;
@@ -206,12 +310,13 @@
       <header class="brand">
         <h1>Ludo <span>Rush</span></h1>
         <nav class="brand-links" aria-label="Links">
+          <a href="./multi.html">Multiplayer</a>
           <a href="https://github.com/s3roy/ludo-sdk">GitHub</a>
           <a href="https://github.com/s3roy/ludo-sdk#readme">Docs</a>
         </nav>
       </header>
       <p class="lede">
-        Generate a local game in your browser — no account, no server. You are Red; bots fill the other seats.
+        Local game in your browser — no account. Your seat color is random each game; bots fill the rest.
       </p>
 
       <main class="panel panel--stage">
@@ -262,10 +367,11 @@
           <label for="timer">Turn timer (dice ring)</label>
           <select id="timer">
             <option value="off">Off</option>
-            <option value="10" selected>10s · skip if miss</option>
-            <option value="15">15s · skip if miss</option>
-            <option value="20">20s · skip if miss</option>
-            <option value="15-auto">15s · auto-play if miss</option>
+            <option value="10" selected>10s · auto-play if miss</option>
+            <option value="15">15s · auto-play if miss</option>
+            <option value="20">20s · auto-play if miss</option>
+            <option value="10-skip">10s · skip if miss</option>
+            <option value="15-skip">15s · skip if miss</option>
           </select>
         </div>
         <div class="field">

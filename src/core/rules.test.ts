@@ -230,5 +230,54 @@ export function runRuleTests() {
     );
   }
 
+  // Void 6: pins need 1–5 to finish — no bonus roll, turn passes
+  {
+    const g = createGame({ mode: 'classic', players: fourAi });
+    const s = g.getState();
+    // All red tokens finished except one sitting on home column needing 2
+    for (const t of s.tokens) {
+      if (t.color !== 0) continue;
+      if (t.id === 'red-0') t.state = { kind: 'homeColumn', index: HOME_LEN - 2 };
+      else t.state = { kind: 'finished' };
+    }
+    s.currentColor = 0;
+    s.phase = 'waiting_roll';
+    s.dice = null;
+    s.consecutiveSixes = 0;
+    g.syncState(s);
+    const beforeColor = 0;
+    const face = g.applyDice(6);
+    assert(face === 6, 'applied void 6');
+    const after = g.getState();
+    assert(after.phase === 'waiting_roll', 'back to waiting_roll');
+    assert(after.dice == null, 'dice cleared');
+    assert(
+      after.currentColor !== beforeColor,
+      'void 6 must pass turn (no bonus roll)',
+    );
+    assert(after.consecutiveSixes === 0, 'six streak cleared after void');
+
+    // Exact 2 finishes — playing it is allowed (win or bonus)
+    const g2 = createGame({ mode: 'classic', players: fourAi });
+    const s2 = g2.getState();
+    for (const t of s2.tokens) {
+      if (t.color !== 0) continue;
+      if (t.id === 'red-0') t.state = { kind: 'homeColumn', index: HOME_LEN - 2 };
+      else t.state = { kind: 'finished' };
+    }
+    s2.currentColor = 0;
+    s2.phase = 'waiting_roll';
+    s2.dice = null;
+    g2.syncState(s2);
+    g2.applyDice(2);
+    const fin = g2.legalMoves().find((m) => m.tokenId === 'red-0');
+    assert(!!fin?.finishes, 'exact 2 finishes');
+    assert(g2.play(fin!), 'play finish');
+    assert(
+      g2.getState().phase === 'finished' || g2.getState().currentColor === 0,
+      'finish wins or grants extra',
+    );
+  }
+
   console.log('[rules] all assertions passed');
 }
