@@ -341,8 +341,17 @@
   z-index: 2;
 }
 
+/* Finished pins: no bounce (re-paint used to re-trigger scale forever) */
 .ludo-sdk__token--home .ludo-sdk__pawn-head {
-  animation: ludo-home-pop 0.45s ease;
+  animation: none;
+}
+
+/* Finished: never draw foot/ring — later SVG groups painted feet over other pins */
+.ludo-sdk__token--home .ludo-sdk__pin-foot,
+.ludo-sdk__token--home .ludo-sdk__token-ring {
+  opacity: 0 !important;
+  animation: none !important;
+  visibility: hidden;
 }
 
 .ludo-sdk__burst {
@@ -1571,16 +1580,20 @@
 .ludo-sdk--theme-king .ludo-sdk__token--playable {
   z-index: 5;
 }
-/* Stacks: one visible foot (top pin) — under pins hide feet to kill ghost rings */
+/* Stacks: only the top pin keeps a foot — under pins must not paint rings over neighbors */
 .ludo-sdk--theme-king .ludo-sdk__token--stacked .ludo-sdk__pin-foot {
-  opacity: 0.45;
+  opacity: 0.4;
 }
-.ludo-sdk--theme-king .ludo-sdk__token--stacked.ludo-sdk__token--stack-under .ludo-sdk__pin-foot {
-  opacity: 0;
-}
+.ludo-sdk--theme-king .ludo-sdk__token--stacked.ludo-sdk__token--stack-under .ludo-sdk__pin-foot,
 .ludo-sdk--theme-king .ludo-sdk__token--stacked.ludo-sdk__token--stack-under .ludo-sdk__token-ring {
-  opacity: 0;
-  animation: none;
+  opacity: 0 !important;
+  animation: none !important;
+  visibility: hidden;
+}
+.ludo-sdk--theme-king .ludo-sdk__token--home .ludo-sdk__pin-foot,
+.ludo-sdk--theme-king .ludo-sdk__token--home .ludo-sdk__token-ring {
+  opacity: 0 !important;
+  visibility: hidden;
 }
 
 /* Non-king: stage is just a board wrapper; dice stays in controls */

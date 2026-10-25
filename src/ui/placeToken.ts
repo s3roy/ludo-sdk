@@ -24,7 +24,12 @@ export function placeTokenAt(
   opts?: { animate?: boolean; durationMs?: number },
 ) {
   const isPin = node.classList.contains('ludo-sdk__pawn--pin');
-  const lift = isPin ? PIN_TIP_PLANT : 2;
+  // Yard seats: tip dead-center on the disc (plant offset reads as off-center)
+  const lift = isPin
+    ? node.getAttribute('data-yard') === '1'
+      ? 0
+      : PIN_TIP_PLANT
+    : 2;
   const tx = x;
   const ty = y + lift;
   const animate = !!opts?.animate;

@@ -33,9 +33,15 @@ const { roomId } = lobby.createRoom({
 });
 
 const j1 = lobby.join(roomId, { playerId: 'alice', name: 'Alice' });
-assert(j1.ok && j1.color === 0, 'alice seat red');
+assert(j1.ok, 'alice joined');
 const j2 = lobby.join(roomId, { playerId: 'bob', name: 'Bob' });
-assert(j2.ok && j2.color === 2, 'bob seat yellow');
+assert(j2.ok, 'bob joined');
+assert(j1.color !== j2.color, 'alice and bob get different seats');
+// 2p uses a diagonal pair (opposite colours)
+assert(
+  (j1.color + 2) % 4 === j2.color || (j2.color + 2) % 4 === j1.color,
+  '2p seats are diagonal',
+);
 
 const full = lobby.join(roomId, { playerId: 'eve', name: 'Eve' });
 assert(!full.ok && full.error === 'room_full', 'room full');
@@ -43,11 +49,11 @@ assert(!full.ok && full.error === 'room_full', 'room full');
 const started = lobby.start(roomId);
 assert(started.ok && started.status === 'playing', 'started');
 
-// Spoof: bob tries to roll as red
+// Spoof: bob tries to roll as alice’s colour
 const spoof = lobby.action(roomId, 'bob', {
   type: 'roll',
   roomId,
-  color: 0,
+  color: j1.color,
 });
 assert(!spoof.ok && spoof.error === 'seat_mismatch', 'seat spoof rejected');
 
@@ -59,7 +65,7 @@ const badDestroy = lobby.action(roomId, 'alice', {
 });
 assert(!badDestroy.ok && badDestroy.error === 'forbidden', 'no client destroy');
 
-// Alice rolls on her turn (may need to wait if AI already moved — blitz 2p alice is red first)
+// Humans play until finished (AI fill unused for 2-human room)
 const room = lobby.getRoom(roomId)!;
 assert(room.state, 'has state');
 let guard = 0;

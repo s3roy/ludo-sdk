@@ -3,6 +3,7 @@ import type { ColorId, GameState, LegalMove, Token } from '../core/types';
 import {
   BOARD_PX,
   CELL,
+  FINISH_HALF,
   homeColumnCell,
   stackPixelOffset,
   tokenPixel,
@@ -156,17 +157,6 @@ export function renderBoardBase(
     }
   }
 
-  for (let c = 0; c < 4; c++) {
-    const color = c as ColorId;
-    for (let i = 0; i < 5; i++) {
-      const { x, y } = homeColumnCell(color, i);
-      const homeFill = sh.flatYards ? YARD[color] : `url(#ludoHome${color})`;
-      parts.push(
-        `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="${sh.homeTileRx}" fill="${homeFill}" stroke="${sh.flatYards ? theme.tileBorder : 'rgba(255,255,255,0.55)'}" stroke-width="1"${lift}/>`,
-      );
-    }
-  }
-
   const cx = 7.5 * CELL;
   const cy = 7.5 * CELL;
   const s = 1.58 * CELL;
@@ -187,8 +177,8 @@ export function renderBoardBase(
     );
     parts.push(`<circle cx="${cx}" cy="${cy}" r="6" fill="${theme.spinnerCenter}"/>`);
   } else if (sh.flatYards) {
-    // Ludo King: square of four triangles, no dark ring
-    const half = 1.5 * CELL;
+    // Stop short of home-stretch cells so step 5 isn’t swallowed by the nest
+    const half = FINISH_HALF;
     parts.push(
       `<polygon points="${cx},${cy} ${cx - half},${cy - half} ${cx + half},${cy - half}" fill="${YARD[2]}"/>`,
     );
@@ -219,6 +209,18 @@ export function renderBoardBase(
       `<circle cx="${cx}" cy="${cy}" r="${s}" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>`,
     );
     parts.push(`<circle cx="${cx}" cy="${cy}" r="5.2" fill="${theme.spinnerCenter}"/>`);
+  }
+
+  // Home stretch on top of the nest edge so the last tiles stay clearly outside
+  for (let c = 0; c < 4; c++) {
+    const color = c as ColorId;
+    for (let i = 0; i < 5; i++) {
+      const { x, y } = homeColumnCell(color, i);
+      const homeFill = sh.flatYards ? YARD[color] : `url(#ludoHome${color})`;
+      parts.push(
+        `<rect x="${x * CELL + 1.2}" y="${y * CELL + 1.2}" width="${CELL - 2.4}" height="${CELL - 2.4}" rx="${sh.homeTileRx}" fill="${homeFill}" stroke="${sh.flatYards ? theme.tileBorder : 'rgba(255,255,255,0.55)'}" stroke-width="1"${lift}/>`,
+      );
+    }
   }
 
   return `<svg class="ludo-sdk__board" viewBox="0 0 ${BOARD_PX} ${BOARD_PX}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ludo board">
@@ -339,8 +341,9 @@ export function tokenMarkup(
   const stroke = theme.pawnStroke;
   const sw = theme.shape.pawnStrokeW;
   const isPin = theme.shape.pawnStyle === 'pin';
-  // Pin tip plants slightly into the foot/seat (not floating above the disc).
-  const ty = isPin ? y + PIN_TIP_PLANT : y + 2;
+  const inYard = token.state.kind === 'yard';
+  // Yard: tip on seat center. Path: slight plant into the foot disc.
+  const ty = isPin ? y + (inYard ? 0 : PIN_TIP_PLANT) : y + 2;
   const cls = [
     'ludo-sdk__token',
     'ludo-sdk__pawn',
@@ -371,10 +374,14 @@ export function tokenMarkup(
           <stop offset="100%" stop-color="${pin.gemGrad[2]}"/>
         </linearGradient>`
         : '';
-    // Tip = local (0,0). Foot/ring locked to CELL center in syncTokens (inverse stack fan).
-    // CELL=24: compact pin + ring so white dash never spills the tile.
-    const footR = 4.6;
-    const ringR = 6.2;
+    // Home stretch: shorter figure so tip-toward-center colors (e.g. red at
+    // bottom) don’t plant their ring on the pin in the cell behind — yellow
+    // tips point the other way and already clear.
+    const onHomeCol = token.state.kind === 'homeColumn';
+    const pinScale = onHomeCol ? 0.34 : 0.44;
+    const footR = onHomeCol ? 3.8 : 4.6;
+    const ringR = onHomeCol ? 5.2 : 6.2;
+    const pinTag = onHomeCol ? 'lk21h' : 'lk21';
     // Tip point past (0,0) so it reads planted in the foot, not hovering above it.
     const shellOuter =
       'M0 -50 C-11 -50 -18 -42 -18 -32 C-18 -20 -6 -8 0 5 C6 -8 18 -20 18 -32 C18 -42 11 -50 0 -50Z';
@@ -383,7 +390,7 @@ export function tokenMarkup(
     // Board CSS rotate(-facing*90) flips pins tip-up — counter-rotate figure only
     // (foot stays in board space so stack inverse-offset still centers on the cell).
     const upright = facingColor * 90;
-    return `<g class="${cls}" data-token-id="${token.id}" data-pin="lk21" data-facing="${facingColor}" transform="translate(${x}, ${ty})">
+    return `<g class="${cls}" data-token-id="${token.id}" data-pin="${pinTag}" data-facing="${facingColor}"${inYard ? ' data-yard="1"' : ''} transform="translate(${x}, ${ty})">
       <defs>
         <linearGradient id="${gid}Shell" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="#FFFFFF"/>
@@ -399,14 +406,14 @@ export function tokenMarkup(
           stroke="#FFFFFF" stroke-width="1.55" stroke-dasharray="0.95 2.6" stroke-linecap="round"/>
       </g>
       <g class="ludo-sdk__pin-upright" transform="rotate(${upright})">
-        <g class="ludo-sdk__pin-figure" transform="scale(0.44)">
+        <g class="ludo-sdk__pin-figure" transform="scale(${pinScale})">
           <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="#29353B" stroke="#111D24" stroke-width="1.6" d="${shellOuter}"/>
           <path class="ludo-sdk__pawn-body ludo-sdk__token-body" fill="url(#${gid}Shell)" stroke="#FFFFFF" stroke-width="1" d="${shellInner}"/>
           <circle cx="0" cy="-33" r="12.5" fill="${pin.gemWell}"/>
           <circle class="ludo-sdk__pawn-head" cx="0" cy="-34" r="11" fill="${gemFill}" stroke="${pin.gemStroke}" stroke-width="1.5"/>
           <ellipse cx="-4" cy="-40" rx="4" ry="2.5" fill="#FFFFFF" opacity="${pin.hi}" transform="rotate(-30 -4 -40)"/>
         </g>
-        <circle class="ludo-sdk__token-hit" cx="0" cy="-5" r="14" fill="transparent"/>
+        <circle class="ludo-sdk__token-hit" cx="0" cy="${onHomeCol ? -4 : -5}" r="${onHomeCol ? 11 : 14}" fill="transparent"/>
         ${label}
       </g>
     </g>`;
@@ -441,7 +448,8 @@ export function tokenMarkup(
 function stackKey(token: Token): string {
   const s = token.state;
   if (s.kind === 'yard') return `yard:${token.color}:${token.slot}`;
-  if (s.kind === 'finished') return `fin:${token.color}:${token.slot}`;
+  // Same-color finishers share a stack key so under-pins can hide feet
+  if (s.kind === 'finished') return `fin:${token.color}`;
   if (s.kind === 'homeColumn') return `home:${token.color}:${s.index}`;
   return `track:${s.index}`;
 }
@@ -469,6 +477,8 @@ export function syncTokens(
   for (const [id, node] of existing) {
     if (!keep.has(id)) node.remove();
   }
+  // Drop leftover feet-overlay nodes from the reverted approach
+  layer.parentElement?.querySelector('[data-ludo-feet]')?.remove();
 
   const groups = new Map<string, Token[]>();
   for (const token of state.tokens) {
@@ -484,8 +494,25 @@ export function syncTokens(
 
   const isPin = theme.shape.pawnStyle === 'pin';
   const stackStyle = isPin ? 'pin' : 'default';
-  // Non-playable first, then stack order, playable last (on top + tappable)
+  // Paint order:
+  // 1) finished (under)
+  // 2) home-column outer → inner (so tips don’t cover the next pin’s foot)
+  // 3) track/yard, playable last
   const drawOrder = [...state.tokens].sort((a, b) => {
+    const rank = (t: Token) => {
+      if (t.state.kind === 'finished') return 0;
+      if (t.state.kind === 'homeColumn') return 1;
+      return 2;
+    };
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (ra === 1 && a.color === b.color) {
+      const ia = a.state.kind === 'homeColumn' ? a.state.index : 0;
+      const ib = b.state.kind === 'homeColumn' ? b.state.index : 0;
+      if (ia !== ib) return ia - ib; // outer first
+    }
+    if (ra === 1 && a.color !== b.color) return a.color - b.color;
     const pa = playable.has(a.id) ? 1 : 0;
     const pb = playable.has(b.id) ? 1 : 0;
     if (pa !== pb) return pa - pb;
@@ -503,11 +530,16 @@ export function syncTokens(
       stackStyle,
     );
     let node = existing.get(token.id) ?? null;
-    // Rebuild pin markup when not on current King pin geometry
+    // Rebuild when geometry / home-stretch / yard tag doesn’t match
+    const wantPin =
+      token.state.kind === 'homeColumn' ? 'lk21h' : 'lk21';
+    const yardMismatch =
+      (token.state.kind === 'yard') !== (node?.getAttribute('data-yard') === '1');
     if (
       node &&
       isPin &&
-      (node.getAttribute('data-pin') !== 'lk21' ||
+      (node.getAttribute('data-pin') !== wantPin ||
+        yardMismatch ||
         !node.querySelector('.ludo-sdk__pin-upright') ||
         !node.querySelector('.ludo-sdk__pin-base .ludo-sdk__token-ring'))
     ) {

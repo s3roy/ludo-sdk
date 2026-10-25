@@ -106,6 +106,12 @@ export function homeColumnCell(color: ColorId, index: number): Pt {
   }
 }
 
+/** Tip pixel for a home-column pin — dead center of the cell (same as track). */
+export function homeColumnPixel(color: ColorId, index: number): Pt {
+  const c = homeColumnCell(color, index);
+  return { x: c.x * CELL + CELL / 2, y: c.y * CELL + CELL / 2 };
+}
+
 export function yardSlots(color: ColorId): Pt[] {
   // 2×2 grid cells (legacy / non-flat themes)
   const bases: Record<ColorId, Pt> = {
@@ -146,9 +152,9 @@ export function yardSlotPixels(
   const x0 = (o.x + 1) * CELL + wellInsetPx;
   const y0 = (o.y + 1) * CELL + wellInsetPx;
   const size = 4 * CELL - wellInsetPx * 2;
-  // Perfect square grid: centers at 28% / 72% of the well
-  const a = size * 0.28;
-  const b = size * 0.72;
+  // Quarter centers of the well — enough gap for tip-anchored King pins
+  const a = size * 0.25;
+  const b = size * 0.75;
   return [
     { x: x0 + a, y: y0 + a },
     { x: x0 + b, y: y0 + a },
@@ -224,6 +230,39 @@ export function stackPixelOffset(
 /** White-well inset used by Ludo King flat yards (must match board paint). */
 export const YARD_WELL_INSET_FLAT = 8;
 
+/** Must match flatYards center `half` in render.ts. */
+export const FINISH_HALF = 1.5 * CELL - 2.5;
+
+/**
+ * Tip pixel for a finished pin — dead center of that color’s win triangle.
+ * Multiple finishers fan a tight 2×2 around the same middle (yard order).
+ */
+export function finishedSlotPixel(color: ColorId, slot: 0 | 1 | 2 | 3): Pt {
+  const cx = 7.5 * CELL;
+  const cy = 7.5 * CELL;
+  const axes: Record<ColorId, { out: Pt; tan: Pt }> = {
+    0: { out: { x: 0, y: 1 }, tan: { x: 1, y: 0 } }, // red — bottom
+    1: { out: { x: -1, y: 0 }, tan: { x: 0, y: 1 } }, // green — left
+    2: { out: { x: 0, y: -1 }, tan: { x: 1, y: 0 } }, // yellow — top
+    3: { out: { x: 1, y: 0 }, tan: { x: 0, y: 1 } }, // blue — right
+  };
+  const { out, tan } = axes[color];
+  // Triangle centroid ≈ 1/2 way from board center to outer edge mid-point
+  const mid = FINISH_HALF * 0.5;
+  const ox = cx + out.x * mid;
+  const oy = cy + out.y * mid;
+  // Compact 2×2 around center — one pin (any slot) still reads as “middle”
+  const spread = 4.2;
+  const fan = [
+    { x: -tan.x * spread - out.x * spread, y: -tan.y * spread - out.y * spread },
+    { x: tan.x * spread - out.x * spread, y: tan.y * spread - out.y * spread },
+    { x: -tan.x * spread + out.x * spread, y: -tan.y * spread + out.y * spread },
+    { x: tan.x * spread + out.x * spread, y: tan.y * spread + out.y * spread },
+  ];
+  const f = fan[slot]!;
+  return { x: ox + f.x, y: oy + f.y };
+}
+
 export function tokenPixel(
   color: ColorId,
   slot: 0 | 1 | 2 | 3,
@@ -237,19 +276,12 @@ export function tokenPixel(
     // Exact 2×2 seats in the white well (same coords as painted discs)
     base = yardSlotPixels(color, YARD_WELL_INSET_FLAT)[slot]!;
   } else if (state.kind === 'finished') {
-    const offsets = [
-      { x: -6, y: -6 },
-      { x: 6, y: -6 },
-      { x: -6, y: 6 },
-      { x: 6, y: 6 },
-    ];
-    base = {
-      x: 7.5 * CELL + offsets[slot]!.x,
-      y: 7.5 * CELL + offsets[slot]!.y,
-    };
+    // Plant tip in the middle of each color’s win triangle.
+    // Tip-anchored pins lean screen-up — nudge tip slightly toward the
+    // triangle’s outer edge so the pin body reads centered in the wedge.
+    base = finishedSlotPixel(color, slot);
   } else if (state.kind === 'homeColumn') {
-    const c = homeColumnCell(color, state.index);
-    base = { x: c.x * CELL + CELL / 2, y: c.y * CELL + CELL / 2 };
+    base = homeColumnPixel(color, state.index);
   } else {
     const c = trackToCell(state.index);
     base = { x: c.x * CELL + CELL / 2, y: c.y * CELL + CELL / 2 };

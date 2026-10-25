@@ -41,10 +41,18 @@ const newGameBtn = document.querySelector<HTMLButtonElement>('#newGame')!;
 const shareBtn = document.querySelector<HTMLButtonElement>('#share')!;
 const pauseBtn = document.querySelector<HTMLButtonElement>('#pauseTimer')!;
 const starStackBtn = document.querySelector<HTMLButtonElement>('#starStack')!;
+const blockDemoBtn = document.querySelector<HTMLButtonElement>('#blockDemo')!;
 const toastEl = document.querySelector<HTMLElement>('#toast')!;
 
 /** Star track cells (not starts): red / green / yellow / blue arms */
 const STAR_CELLS = [8, 21, 34, 47] as const;
+
+type DemoId = 'star-stack' | 'block' | 'home';
+
+/** Non-safe track cell for the 3-red block (between red start 0 and star 8). */
+const BLOCK_CELL = 5;
+/** Green sits here — dice 2 would land on BLOCK_CELL (illegal). */
+const APPROACH_CELL = 3;
 
 let handle: LudoHandle | null = null;
 let toastTimer = 0;
@@ -128,7 +136,7 @@ function currentConfig(forceNewId = false): GameConfig {
   };
 }
 
-function writeUrl(cfg: GameConfig, demo?: 'star-stack', replace = true) {
+function writeUrl(cfg: GameConfig, demo?: DemoId, replace = true) {
   const url = new URL(location.href);
   url.searchParams.set('mode', cfg.mode);
   url.searchParams.set('players', String(cfg.players));
@@ -139,6 +147,41 @@ function writeUrl(cfg: GameConfig, demo?: 'star-stack', replace = true) {
   if (demo) url.searchParams.set('demo', demo);
   else url.searchParams.delete('demo');
   history[replace ? 'replaceState' : 'pushState'](null, '', url);
+}
+
+function isFreezeDemo(demo?: DemoId): boolean {
+  return demo === 'star-stack' || demo === 'block' || demo === 'home';
+}
+
+/**
+ * Home-stretch QA: each color has a pin on 2nd-last + last home cell,
+ * plus one finished — check tips sit in cell centers (not on the line).
+ */
+function applyHomeDemo(h: LudoHandle) {
+  const s = h.getState();
+  const tokens = s.tokens.map((t) => {
+    if (t.slot === 0) {
+      return { ...t, state: { kind: 'homeColumn' as const, index: 3 } }; // 2nd-last
+    }
+    if (t.slot === 1) {
+      return { ...t, state: { kind: 'homeColumn' as const, index: 4 } }; // last
+    }
+    if (t.slot === 2) {
+      return { ...t, state: { kind: 'finished' as const } };
+    }
+    return { ...t, state: { kind: 'yard' as const } };
+  });
+  const next: GameState = {
+    ...s,
+    tokens,
+    players: freezeSeats(),
+    phase: 'waiting_roll',
+    dice: null,
+    currentColor: 0,
+    consecutiveSixes: 0,
+  };
+  h.syncState(next);
+  h.setTurnTimer(false);
 }
 
 function toast(msg: string) {
@@ -185,29 +228,83 @@ function applyStarStackDemo(h: LudoHandle) {
   h.setTurnTimer(false);
 }
 
-function start(cfg: GameConfig, demo?: 'star-stack') {
+/**
+ * Block QA scene:
+ * - 3 reds stacked on unsafe cell 5 (immune wall)
+ * - 2 yellows stacked on cell 28 (2-stack look)
+ * - 1 blue alone on unsafe cell 10 (capturable if landed on)
+ * - Green on cell 3 with dice=2 → would land on 5 but move is illegal
+ * - Another green free on cell 15 so you can still move / compare
+ */
+function applyBlockDemo(h: LudoHandle) {
+  const s = h.getState();
+  const tokens = s.tokens.map((t) => {
+    if (t.color === 0) {
+      // Red: 3-stack block on BLOCK_CELL
+      if (t.slot <= 2) {
+        return { ...t, state: { kind: 'track' as const, index: BLOCK_CELL } };
+      }
+      return { ...t, state: { kind: 'yard' as const } };
+    }
+    if (t.color === 1) {
+      if (t.slot === 0) {
+        return { ...t, state: { kind: 'track' as const, index: APPROACH_CELL } };
+      }
+      if (t.slot === 1) {
+        return { ...t, state: { kind: 'track' as const, index: 15 } };
+      }
+      return { ...t, state: { kind: 'yard' as const } };
+    }
+    if (t.color === 2) {
+      // Yellow: 2-stack elsewhere
+      if (t.slot === 0 || t.slot === 1) {
+        return { ...t, state: { kind: 'track' as const, index: 28 } };
+      }
+      return { ...t, state: { kind: 'yard' as const } };
+    }
+    // Blue: lone pin on unsafe cell (capture target)
+    if (t.slot === 0) {
+      return { ...t, state: { kind: 'track' as const, index: 10 } };
+    }
+    return { ...t, state: { kind: 'yard' as const } };
+  });
+  const next: GameState = {
+    ...s,
+    tokens,
+    players: freezeSeats(),
+    // Green to move with a 2 that would hit the red wall
+    currentColor: 1,
+    phase: 'waiting_move',
+    dice: 2,
+    consecutiveSixes: 0,
+  };
+  h.syncState(next);
+  h.setTurnTimer(false);
+}
+
+function start(cfg: GameConfig, demo?: DemoId) {
   handle?.destroy();
   roomIdEl.textContent = cfg.roomId;
   writeUrl(cfg, demo);
 
-  const room =
-    demo === 'star-stack'
-      ? {
-          roomId: cfg.roomId,
-          mode: cfg.mode,
-          seats: freezeSeats(),
-          interactiveColors: [0, 1, 2, 3] as ColorId[],
-          autoAi: false,
-          controlled: false,
-        }
-      : offlineRoom({
-          roomId: cfg.roomId,
-          mode: cfg.mode,
-          players: cfg.players,
-          aiDifficulty: cfg.aiDifficulty,
-          // Random seat each game — not always red
-          humanColor: Math.floor(Math.random() * 4) as ColorId,
-        });
+  const freeze = isFreezeDemo(demo);
+  const room = freeze
+    ? {
+        roomId: cfg.roomId,
+        mode: cfg.mode,
+        seats: freezeSeats(),
+        interactiveColors: [0, 1, 2, 3] as ColorId[],
+        autoAi: false,
+        controlled: false,
+      }
+    : offlineRoom({
+        roomId: cfg.roomId,
+        mode: cfg.mode,
+        players: cfg.players,
+        aiDifficulty: cfg.aiDifficulty,
+        // Random seat each game — not always red
+        humanColor: Math.floor(Math.random() * 4) as ColorId,
+      });
 
   document.body.classList.add('playing');
   document.documentElement.style.overflow = 'hidden';
@@ -219,8 +316,8 @@ function start(cfg: GameConfig, demo?: 'star-stack') {
     compact: false,
     sound: true,
     theme: cfg.theme,
-    aiDelayMs: demo === 'star-stack' ? 60_000 : 600,
-    turnTimer: demo === 'star-stack' ? false : timerConfig(cfg.timer),
+    aiDelayMs: freeze ? 60_000 : 600,
+    turnTimer: freeze ? false : timerConfig(cfg.timer),
     onRematch: () => {
       newGame();
     },
@@ -245,6 +342,14 @@ function start(cfg: GameConfig, demo?: 'star-stack') {
   if (demo === 'star-stack') {
     applyStarStackDemo(handle);
     toast('Star stacks · 2 pins per color on each star');
+  } else if (demo === 'block') {
+    applyBlockDemo(handle);
+    toast(
+      'Block demo · Green’s dice=2 cannot land on 3-red stack · move the free green pin',
+    );
+  } else if (demo === 'home') {
+    applyHomeDemo(handle);
+    toast('Home path · 2nd-last + last cell + 1 finished per color');
   }
 }
 
@@ -259,6 +364,13 @@ function showStarStack() {
   cfg.theme = 'king';
   cfg.players = 4;
   start(cfg, 'star-stack');
+}
+
+function showBlockDemo() {
+  const cfg = currentConfig(true);
+  cfg.theme = 'king';
+  cfg.players = 4;
+  start(cfg, 'block');
 }
 
 async function share() {
@@ -295,6 +407,7 @@ function togglePause() {
 applyForm(readConfigFromUrl());
 newGameBtn.addEventListener('click', newGame);
 starStackBtn.addEventListener('click', showStarStack);
+blockDemoBtn.addEventListener('click', showBlockDemo);
 shareBtn.addEventListener('click', () => {
   void share();
 });
@@ -320,6 +433,13 @@ themeSel.addEventListener('change', () => {
 const bootDemo = new URLSearchParams(location.search).get('demo');
 if (bootDemo === 'star-stack') {
   showStarStack();
+} else if (bootDemo === 'block') {
+  showBlockDemo();
+} else if (bootDemo === 'home') {
+  const cfg = currentConfig(true);
+  cfg.theme = 'king';
+  cfg.players = 4;
+  start(cfg, 'home');
 } else {
   start(currentConfig(false));
 }
