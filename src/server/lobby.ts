@@ -469,9 +469,18 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     if (room.status === 'playing' || room.status === 'finished') {
       const existing = room.players.get(player.playerId);
       if (!existing) return { ok: false, error: 'game_already_started' };
+      // Reclaim seat after disconnect / hold leave
       existing.ready = true;
+      if (player.name?.trim()) existing.name = player.name.trim();
+      room.missStreak.set(existing.color, 0);
       room.host?.setPresence(existing.color, 'ready', {
-        name: player.name ?? existing.name,
+        kind: 'human',
+        id: player.playerId,
+        name: existing.name,
+      });
+      opts.broadcast(roomId, {
+        type: 'seats',
+        seats: room.host?.getConfig().seats ?? toConfig(room).seats,
       });
       const snap = snapshot(room);
       snap.color = existing.color;
@@ -635,6 +644,21 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       const policy = room.policy.onLeave;
       if (policy === 'convert_ai') {
         convertSeatToAi(room, color, 'leave');
+        driveAi(room);
+        armTurnTimer(room);
+        return { ok: true };
+      }
+      if (policy === 'hold') {
+        // Keep playerId → can rejoin; mark disconnected; misses still auto/skip
+        room.host.setPresence(color, 'disconnected', {
+          kind: 'human',
+          id: playerId,
+          name: p.name,
+        });
+        opts.broadcast(roomId, {
+          type: 'seats',
+          seats: room.host.getConfig().seats,
+        });
         driveAi(room);
         armTurnTimer(room);
         return { ok: true };

@@ -44,6 +44,35 @@ Arena points: **+1** move · **+2** open · **+10** capture · **+25** finish (s
 
 Full shared rules: [`RULES.md`](./RULES.md).
 
+## Room create · auto-play & leave
+
+Set at `createRoom` / cash·multi **Create** (not changeable mid-match).
+
+| Missed-turn preset | Effect |
+|--------------------|--------|
+| **0** | No auto — timeout **skips** the turn |
+| **3** / **5** | Server auto-plays that many consecutive misses → then seat → **bot** |
+| **infinite** | Auto-play on every timeout · never convert for misses |
+
+| Leave option | Effect |
+|--------------|--------|
+| **Keep seat · can rejoin** (`hold`) | Presence `disconnected`; same player can join again and reclaim; misses still count |
+| **Become bot** (`convert_ai`) | Seat → AI immediately · cannot reclaim |
+
+```ts
+import { policyFromAutoPlayPreset } from '@ludorush/sdk'
+
+lobby.createRoom({
+  policy: {
+    turnDurationMs: 15_000,
+    ...policyFromAutoPlayPreset('5'),
+    onLeave: 'hold',
+  },
+})
+```
+
+Clients see `presence` / `seats` (disconnected or Bot). On rejoin: `presence: ready` + board `sync`.
+
 ## AI difficulty
 
 AI never changes legality or win rules. It only chooses among `listLegalMoves()`.

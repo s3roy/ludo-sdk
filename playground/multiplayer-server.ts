@@ -6,6 +6,10 @@ import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 // Import lobby + types only (not src/index — that pulls CSS and breaks Node).
 import { createLudoLobby } from '../src/server/lobby.ts';
+import {
+  policyFromAutoPlayPreset,
+  type RoomLifecyclePolicy,
+} from '../src/server/policy.ts';
 import type { PlayerConfig } from '../src/core/types.ts';
 import type { LudoClientAction, LudoHostCommand } from '../src/sdk/room.ts';
 
@@ -19,6 +23,8 @@ type ClientMsg =
       mode?: 'classic' | 'rush' | 'blitz' | 'arena';
       maxPlayers?: 2 | 3 | 4;
       fillAi?: boolean;
+      autoPlay?: string;
+      onLeave?: 'hold' | 'convert_ai';
     }
   | { type: 'join'; roomId: string; name?: string }
   | { type: 'ready'; ready?: boolean }
@@ -161,11 +167,20 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'create') {
       if (msg.name?.trim()) conn.name = msg.name.trim();
+      const auto = policyFromAutoPlayPreset(msg.autoPlay ?? '3');
+      const onLeave: RoomLifecyclePolicy['onLeave'] =
+        msg.onLeave === 'convert_ai' ? 'convert_ai' : 'hold';
       const { roomId } = lobby.createRoom({
         mode: msg.mode ?? 'rush',
         maxPlayers: msg.maxPlayers ?? 2,
         fillAi: msg.fillAi ?? false,
         aiDifficulty: 'extreme',
+        matchDurationMs: msg.mode === 'arena' ? 180_000 : undefined,
+        policy: {
+          turnDurationMs: 15_000,
+          ...auto,
+          onLeave,
+        },
       });
       const joined = lobby.join(roomId, {
         playerId: conn.playerId,

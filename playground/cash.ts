@@ -19,6 +19,8 @@ const passwordInput = document.querySelector<HTMLInputElement>('#password')!;
 const stakeInput = document.querySelector<HTMLInputElement>('#stake')!;
 const modeSel = document.querySelector<HTMLSelectElement>('#mode')!;
 const playersSel = document.querySelector<HTMLSelectElement>('#players')!;
+const autoPlaySel = document.querySelector<HTMLSelectElement>('#autoPlay')!;
+const onLeaveSel = document.querySelector<HTMLSelectElement>('#onLeave')!;
 const joinCode = document.querySelector<HTMLInputElement>('#joinCode')!;
 const lobbyBox = document.querySelector<HTMLElement>('#lobbyBox')!;
 const tableCodeEl = document.querySelector<HTMLElement>('#tableCode')!;
@@ -363,6 +365,13 @@ function selectedPlayers(): 2 | 3 | 4 {
   return 2;
 }
 
+function roomPolicyFields() {
+  return {
+    autoPlay: autoPlaySel.value,
+    onLeave: onLeaveSel.value as 'hold' | 'convert_ai',
+  };
+}
+
 document.querySelector('#vsAiBtn')!.addEventListener('click', () => {
   const mode = modeSel.value as GameMode;
   const maxPlayers = selectedPlayers();
@@ -374,6 +383,7 @@ document.querySelector('#vsAiBtn')!.addEventListener('click', () => {
     mode,
     maxPlayers,
     fillAi: true,
+    ...roomPolicyFields(),
   });
 });
 
@@ -388,6 +398,7 @@ document.querySelector('#createHumanBtn')!.addEventListener('click', () => {
     mode,
     maxPlayers,
     fillAi: false,
+    ...roomPolicyFields(),
   });
   toast(`Share the table code · ${maxPlayers} seats`);
 });
@@ -397,10 +408,16 @@ document.querySelector('#joinBtn')!.addEventListener('click', () => {
 });
 
 document.querySelector('#leaveBtn')!.addEventListener('click', () => {
-  send({ type: 'cancel' });
-  send({ type: 'leave' });
+  // Mid-game: leave only (hold seat / convert per table policy). Cancel = lobby refund.
+  if (handle) {
+    send({ type: 'leave' });
+  } else {
+    send({ type: 'cancel' });
+    send({ type: 'leave' });
+  }
   unmountGame();
   lobbyBox.hidden = true;
+  toast('Left table — rejoin with code if seat was held');
 });
 
 (async () => {

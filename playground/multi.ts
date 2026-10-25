@@ -233,6 +233,9 @@ function connect() {
 
 connect();
 
+const autoPlaySel = document.querySelector<HTMLSelectElement>('#autoPlay')!;
+const onLeaveSel = document.querySelector<HTMLSelectElement>('#onLeave')!;
+
 createBtn.addEventListener('click', () => {
   send({
     type: 'create',
@@ -240,6 +243,8 @@ createBtn.addEventListener('click', () => {
     mode: modeSel.value as GameMode,
     maxPlayers: Number(maxSel.value) as 2 | 3 | 4,
     fillAi: false,
+    autoPlay: autoPlaySel.value,
+    onLeave: onLeaveSel.value,
   });
 });
 

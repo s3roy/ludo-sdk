@@ -277,6 +277,22 @@
               <option value="4">4 · full table</option>
             </select>
           </div>
+          <div class="field">
+            <label for="autoPlay">Missed turns (auto-play)</label>
+            <select id="autoPlay">
+              <option value="3" selected>3 auto → then bot</option>
+              <option value="5">5 auto → then bot</option>
+              <option value="0">0 · skip turn (no auto)</option>
+              <option value="infinite">Infinite auto (never bot)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="onLeave">If a player leaves</label>
+            <select id="onLeave">
+              <option value="hold" selected>Keep seat · can rejoin</option>
+              <option value="convert_ai">Become bot · no reclaim</option>
+            </select>
+          </div>
           <button class="primary" id="vsAiBtn" type="button">Play vs AI (stake)</button>
 
           <div class="field" style="margin-top:14px">

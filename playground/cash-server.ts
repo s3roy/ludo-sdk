@@ -13,8 +13,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createLudoLobby } from '../src/server/lobby.ts';
+import { policyFromAutoPlayPreset } from '../src/server/policy.ts';
 import type { ColorId, PlayerConfig } from '../src/core/types.ts';
 import type { LudoClientAction, LudoHostCommand } from '../src/sdk/room.ts';
+import type { RoomLifecyclePolicy } from '../src/server/policy.ts';
 
 const PORT = Number(process.env.LUDO_CASH_PORT ?? 8790);
 const START_BALANCE = 1000;
@@ -56,6 +58,10 @@ type ClientMsg =
       mode?: 'classic' | 'rush' | 'blitz' | 'arena';
       maxPlayers?: 2 | 3 | 4;
       fillAi?: boolean;
+      /** `0` | `3` | `5` | `infinite` — missed-turn auto-play preset */
+      autoPlay?: string;
+      /** Keep seat for rejoin, or convert to bot */
+      onLeave?: 'hold' | 'convert_ai';
     }
   | { type: 'join'; tableId: string }
   | { type: 'start' }
@@ -546,6 +552,14 @@ wss.on('connection', (ws) => {
         send(ws, { type: 'error', error: err });
         return;
       }
+      const auto = policyFromAutoPlayPreset(msg.autoPlay ?? '3');
+      const onLeave: RoomLifecyclePolicy['onLeave'] =
+        msg.onLeave === 'convert_ai' ? 'convert_ai' : 'hold';
+      const policy: RoomLifecyclePolicy = {
+        turnDurationMs: 60_000,
+        ...auto,
+        onLeave,
+      };
       const { roomId } = lobby.createRoom({
         mode: table.mode,
         maxPlayers: table.maxPlayers,
@@ -553,13 +567,7 @@ wss.on('connection', (ws) => {
         aiDifficulty: 'extreme',
         matchDurationMs: table.mode === 'arena' ? 180_000 : undefined,
         meta: { stake, tableId: table.id },
-        // Humans keep the seat — server AI only fills empty chairs
-        policy: {
-          turnDurationMs: 60_000,
-          onTurnTimeout: 'auto',
-          maxAutoTurns: 0,
-          onLeave: 'convert_ai',
-        },
+        policy,
       });
       table.roomId = roomId;
       const joined = lobby.join(roomId, {
@@ -592,6 +600,23 @@ wss.on('connection', (ws) => {
       const table = tables.get(tableId);
       if (!table || !table.roomId) {
         send(ws, { type: 'error', error: 'table_not_found' });
+        return;
+      }
+      // Rejoin mid-match (hold seat) — same user, already escrowed
+      if (table.status === 'playing' && table.escrow.has(user.id)) {
+        const rejoined = lobby.join(table.roomId, {
+          playerId: user.id,
+          name: user.username,
+        });
+        if (!rejoined.ok) {
+          send(ws, { type: 'error', error: rejoined.error });
+          return;
+        }
+        unbindTable(conn);
+        conn.tableId = table.id;
+        conn.color = rejoined.color;
+        bindTable(table.id, conn);
+        emitTable(table.id);
         return;
       }
       if (table.status !== 'open') {

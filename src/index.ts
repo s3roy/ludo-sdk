@@ -152,7 +152,9 @@ export {
 /** Room lifecycle defaults. */
 export {
   normalizeRoomPolicy,
+  policyFromAutoPlayPreset,
   DEFAULT_ROOM_POLICY,
+  type AutoPlayPreset,
 } from './server/policy';
 
 /** Hosted client — UI + intents only. */

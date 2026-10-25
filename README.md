@@ -112,7 +112,7 @@ const match = lobby.createMatch({
     turnDurationMs: 15_000,
     onTurnTimeout: 'auto',
     maxAutoTurns: 3,
-    onLeave: 'convert_ai',
+    onLeave: 'hold',
   },
 })
 if (!match.ok) throw new Error(match.error)
@@ -148,8 +148,10 @@ const ui = mountHostedLudo('#board', {
 |-------|---------|---------|
 | `turnDurationMs` | `15000` | Server turn clock (`false` = off) |
 | `onTurnTimeout` | `'auto'` | `'auto'` play once via AI, or `'skip'` forfeit |
-| `maxAutoTurns` | `3` | Miss streak before seat → AI (`0` = never) |
-| `onLeave` | `'convert_ai'` | `'convert_ai'` · `'forfeit'` · `'destroy_if_empty'` |
+| `maxAutoTurns` | `3` | Miss streak before seat → AI (`0` = infinite auto) |
+| `onLeave` | `'hold'` | `'hold'` (rejoin OK) · `'convert_ai'` · `'forfeit'` · `'destroy_if_empty'` |
+
+**Create UI presets:** auto-play `0` / `3` / `5` / `infinite` via `policyFromAutoPlayPreset()`. Leave `hold` = disconnect & come back; `convert_ai` = seat becomes bot permanently.
 
 See **[DOCS.md](./DOCS.md)** for rooms, timer, host commands.
 
