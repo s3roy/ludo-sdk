@@ -640,17 +640,25 @@ export function statusText(
   if (state.phase === 'finished' && state.winner != null) {
     return `🏆 <strong>${title(COLOR_NAMES[state.winner])}</strong> wins!`;
   }
-  const name = title(COLOR_NAMES[state.currentColor]);
+  const colorWord = title(COLOR_NAMES[state.currentColor]);
   const p = state.players.find((x) => x.color === state.currentColor);
   const you = opts?.interactive?.has(state.currentColor) ?? p?.kind === 'human';
-  const kind = you ? 'You' : p?.kind === 'ai' ? 'AI' : p?.name ?? 'Player';
+  const raw = (p?.name || '').trim();
+  const seat =
+    p?.kind === 'ai'
+      ? !raw || raw.toLowerCase() === COLOR_NAMES[state.currentColor]
+        ? 'Bot'
+        : raw
+      : you
+        ? raw || 'You'
+        : raw || 'Player';
   if (state.phase === 'waiting_roll') {
-    return `<span class="ludo-sdk__turn-dot ludo-sdk__turn-dot--c${state.currentColor}"></span> <strong>${name}</strong> · ${kind} — roll`;
+    return `<span class="ludo-sdk__turn-dot ludo-sdk__turn-dot--c${state.currentColor}"></span> <strong>${seat}</strong> · ${colorWord} — roll`;
   }
   if (state.phase === 'waiting_move') {
-    return `<span class="ludo-sdk__turn-dot ludo-sdk__turn-dot--c${state.currentColor}"></span> <strong>${name}</strong> · ${kind} — move`;
+    return `<span class="ludo-sdk__turn-dot ludo-sdk__turn-dot--c${state.currentColor}"></span> <strong>${seat}</strong> · ${colorWord} — move`;
   }
-  return `<span class="ludo-sdk__turn-dot ludo-sdk__turn-dot--c${state.currentColor}"></span> <strong>${name}</strong> · ${kind}`;
+  return `<span class="ludo-sdk__turn-dot ludo-sdk__turn-dot--c${state.currentColor}"></span> <strong>${seat}</strong> · ${colorWord}`;
 }
 
 function title(s: string) {

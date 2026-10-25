@@ -41,6 +41,13 @@ export {
   isSafeSquare,
   seatColorsForCount,
 } from './core/constants';
+export {
+  ARENA_DEFAULT_DURATION_MS,
+  ARENA_POINTS,
+  formatMatchClock,
+  pointsForMove,
+  rankByArenaScore,
+} from './core/arena';
 export type {
   ColorId,
   GameMode,

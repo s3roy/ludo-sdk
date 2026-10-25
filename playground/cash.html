@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Cash table · Ludo Rush SDK</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Nunito", system-ui, sans-serif;
+        --bg: #07152e;
+        --bg-outer: #172642;
+        --card: #0b1933;
+        --text: #f8fafc;
+        --muted: #8192b0;
+        --line: #173d78;
+        --accent: #ffc21a;
+        --btn-roll-start: #ffe34d;
+        --btn-roll-end: #ffae00;
+        --btn-text: #10213c;
+        --app-vh: 100dvh;
+        --safe-t: env(safe-area-inset-top, 0px);
+        --safe-b: env(safe-area-inset-bottom, 0px);
+        --safe-l: env(safe-area-inset-left, 0px);
+        --safe-r: env(safe-area-inset-right, 0px);
+      }
+      * { box-sizing: border-box; }
+      html { height: 100%; height: -webkit-fill-available; }
+      body {
+        margin: 0;
+        min-height: 100%;
+        min-height: 100dvh;
+        background:
+          radial-gradient(ellipse 90% 60% at 50% -10%, #1a3a6b 0%, transparent 50%),
+          linear-gradient(180deg, var(--bg-outer) 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+      body.playing { overflow: hidden; background: #0f234e; overscroll-behavior: none; }
+      body.playing .page {
+        position: fixed;
+        inset: 0;
+        max-width: none;
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        height: -webkit-fill-available;
+        height: var(--app-vh);
+        margin: 0;
+        /* Minimal safe-area only — no extra play padding on phones */
+        padding:
+          max(2px, var(--safe-t))
+          max(2px, var(--safe-r))
+          max(2px, var(--safe-b))
+          max(2px, var(--safe-l));
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+        gap: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      body.playing .brand,
+      body.playing aside.panel { display: none !important; }
+      body.playing .panel--stage {
+        position: relative;
+        min-height: 0;
+        min-width: 0;
+        height: 100%;
+        padding: 0;
+        overflow: hidden;
+        background: transparent;
+        border: none;
+      }
+      body.playing #stage,
+      body.playing #mount {
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+      }
+      /* Board centers inside .ludo-sdk--fill — do not grid-center #mount (collapses width). */
+      body.playing #mount .ludo-sdk {
+        width: 100%;
+        height: 100%;
+        max-width: none !important;
+        margin: 0;
+      }
+      .page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 20px 16px 40px;
+        display: grid;
+        gap: 16px;
+      }
+      @media (min-width: 860px) {
+        .page {
+          grid-template-columns: 1fr 320px;
+          align-items: start;
+          padding-top: 28px;
+        }
+      }
+      .brand {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px 16px;
+      }
+      .brand h1 { margin: 0; font-size: 1.45rem; font-weight: 900; }
+      .brand h1 span { color: var(--accent); }
+      .brand a { color: var(--muted); font-size: 0.8rem; font-weight: 800; text-decoration: none; }
+      .brand a:hover { color: var(--text); }
+      .panel {
+        background: color-mix(in srgb, var(--card) 92%, transparent);
+        border: 1px solid var(--line); border-radius: 18px; padding: 16px;
+      }
+      .panel--stage {
+        background: transparent;
+        border: none;
+        padding: 0;
+        min-height: 320px;
+      }
+      #stage {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 280px;
+      }
+      #mount {
+        width: 100%;
+        max-width: 420px;
+        margin: 0 auto;
+      }
+      #mount:empty::before {
+        content: "Register → Play vs AI to start…";
+        display: block;
+        padding: 48px 16px;
+        text-align: center;
+        color: var(--muted);
+        font-weight: 800;
+      }
+      body.playing #mount { max-width: none; }
+      body.playing #mount:empty::before { content: none; }
+      h2 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 900; }
+      .sub { margin: 0 0 12px; color: var(--muted); font-size: 0.78rem; font-weight: 700; }
+      .status { font-size: 0.82rem; font-weight: 800; margin: 0 0 12px; }
+      .status.ok { color: #7dffa8; }
+      .status.err { color: #ff8b8b; }
+      .wallet {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 12px; border-radius: 12px; background: #10203b;
+        margin-bottom: 12px; font-weight: 900;
+      }
+      .wallet strong { color: var(--accent); font-size: 1.15rem; }
+      .field { margin-bottom: 10px; }
+      .field label {
+        display: block; font-size: 0.72rem; color: var(--muted);
+        font-weight: 800; margin-bottom: 4px;
+      }
+      .field input, .field select {
+        width: 100%; padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--line); background: #0a162c; color: var(--text);
+        font: inherit; font-weight: 800;
+      }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      button {
+        width: 100%; border: 0; border-radius: 12px; padding: 12px;
+        font: inherit; font-weight: 900; cursor: pointer; margin-top: 6px;
+      }
+      button.primary {
+        background: linear-gradient(180deg, var(--btn-roll-start), var(--btn-roll-end));
+        color: var(--btn-text);
+      }
+      button.ghost {
+        background: transparent; color: var(--text); border: 1px solid var(--line);
+      }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      .room-code {
+        font-family: ui-monospace, Menlo, monospace; font-size: 1.25rem;
+        letter-spacing: 0.14em; text-align: center; padding: 12px;
+        border-radius: 12px; border: 1px dashed #254a82; margin: 10px 0;
+        font-weight: 900; color: var(--accent); user-select: all;
+      }
+      .seat-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+      .seat-list li {
+        display: flex; justify-content: space-between; gap: 8px;
+        padding: 8px 10px; border-radius: 10px; background: #10203b;
+        font-size: 0.82rem; font-weight: 800;
+      }
+      .dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        display: inline-block; margin-right: 6px;
+      }
+      .hint {
+        font-size: 0.72rem; color: var(--muted); margin-top: 12px;
+        line-height: 1.45; font-weight: 700;
+      }
+      #authBox, #playBox { display: none; }
+      #authBox.show, #playBox.show { display: block; }
+      #toast {
+        position: fixed; left: 50%; bottom: 24px;
+        transform: translateX(-50%) translateY(20px);
+        background: #0b1933ee; border: 1px solid var(--line);
+        padding: 10px 16px; border-radius: 999px; font-weight: 800;
+        font-size: 0.85rem; opacity: 0; pointer-events: none;
+        transition: 0.2s ease; z-index: 50;
+      }
+      #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="brand">
+        <h1>Ludo <span>Cash</span></h1>
+        <a href="./">← Offline</a> · <a href="./multi.html">Free multi</a>
+      </header>
+
+      <section class="panel panel--stage">
+        <div id="stage"><div id="mount"></div></div>
+      </section>
+
+      <aside class="panel">
+        <h2>Wallet table</h2>
+        <p class="sub">Login · stake escrow · extreme AI · server-authoritative.</p>
+        <p class="status" id="status">Loading…</p>
+
+        <div id="authBox">
+          <div class="field">
+            <label for="username">Username</label>
+            <input id="username" maxlength="24" placeholder="alice" autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" maxlength="64" placeholder="••••" autocomplete="current-password" />
+          </div>
+          <div class="row">
+            <button class="primary" id="loginBtn" type="button">Login</button>
+            <button class="ghost" id="registerBtn" type="button">Register</button>
+          </div>
+          <p class="hint">New accounts start with <strong>1000</strong> demo chips. Not real money.</p>
+        </div>
+
+        <div id="playBox">
+          <div class="wallet">
+            <span id="who">—</span>
+            <strong id="balance">0</strong>
+          </div>
+          <div class="row">
+            <button class="ghost" id="topupBtn" type="button">+500 chips</button>
+            <button class="ghost" id="logoutBtn" type="button">Log out</button>
+          </div>
+
+          <div class="field" style="margin-top:12px">
+            <label for="stake">Stake</label>
+            <input id="stake" type="number" min="10" max="10000" step="10" value="50" />
+          </div>
+          <div class="field">
+            <label for="mode">Mode</label>
+            <select id="mode">
+              <option value="rush" selected>Rush</option>
+              <option value="classic">Classic</option>
+              <option value="blitz">Blitz</option>
+              <option value="arena">Arena · timed points</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="players">Players</label>
+            <select id="players">
+              <option value="2" selected>2 · you + AI (or 1 friend)</option>
+              <option value="3">3 · you + 2 seats</option>
+              <option value="4">4 · full table</option>
+            </select>
+          </div>
+          <button class="primary" id="vsAiBtn" type="button">Play vs AI (stake)</button>
+
+          <div class="field" style="margin-top:14px">
+            <label for="joinCode">Join table code</label>
+            <input id="joinCode" maxlength="16" placeholder="T…" style="text-transform:uppercase" />
+          </div>
+          <button class="ghost" id="joinBtn" type="button">Join human table</button>
+          <button class="ghost" id="createHumanBtn" type="button">Create open table</button>
+
+          <div id="lobbyBox" hidden>
+            <div class="room-code" id="tableCode">————</div>
+            <ul class="seat-list" id="seatList"></ul>
+            <p class="status" id="myColor">Your color: —</p>
+            <p class="status" id="potLine">Pot: —</p>
+            <button class="ghost" id="leaveBtn" type="button">Leave / cancel</button>
+          </div>
+
+          <p class="hint">
+            Same-origin API (<code>/api</code> + <code>/ws</code>) · AI = extreme ·
+            Winner takes pot − 0.5% rake. Lose to AI = stake gone.
+          </p>
+        </div>
+      </aside>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="./cash.ts"></script>
+  </body>
+</html>

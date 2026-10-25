@@ -91,6 +91,7 @@ export function countFinished(state: GameState, color: ColorId): number {
 }
 
 export function hasWon(state: GameState, color: ColorId, mode: GameMode): boolean {
+  if (mode === 'arena') return false; // timed score match — see endMatch()
   return countFinished(state, color) >= tokensToWin(mode);
 }
 

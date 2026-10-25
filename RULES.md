@@ -23,3 +23,10 @@
 ## Blitz
 - Leave yard only on a **6** (same as classic)
 - Win by finishing **1** token
+
+## Arena
+- Leave yard only on a **6** (same as classic)
+- Match runs on a **total clock** (default **3 minutes**)
+- Score points; when time ends, **highest score wins** (ties → more tokens finished)
+- Points: **+1** move · **+2** open from yard · **+10** capture · **+25** finish a token
+  (bonuses stack on the same play)

@@ -56,17 +56,18 @@ export function isSafeSquare(index: number): boolean {
 }
 
 export function tokensToWin(mode: GameMode): number {
+  if (mode === 'arena') return Number.POSITIVE_INFINITY;
   if (mode === 'blitz') return 1;
   if (mode === 'rush') return 2;
   return 4;
 }
 
-/** All modes: leave yard only on a 6. Modes differ by tokens-to-win. */
+/** All modes: leave yard only on a 6. Modes differ by win condition. */
 export function canEnterOnRoll(_mode: GameMode, dice: number): boolean {
   return dice === 6;
 }
 
-export const GAME_MODES: GameMode[] = ['classic', 'rush', 'blitz'];
+export const GAME_MODES: GameMode[] = ['classic', 'rush', 'blitz', 'arena'];
 
 export function nextColor(c: ColorId): ColorId {
   return ((c + 1) % 4) as ColorId;

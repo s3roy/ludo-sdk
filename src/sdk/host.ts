@@ -54,6 +54,8 @@ export type LudoRoomHost = {
   applyMove: (tokenId: string) => boolean;
   /** Full resync broadcast. */
   sync: (event?: GameEvent | null) => void;
+  /** Arena: end match by score (match clock). */
+  endMatch: () => boolean;
 };
 
 /**
@@ -87,6 +89,7 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     mode: room.mode,
     players: room.seats,
     rng: opts.rng,
+    matchDurationMs: room.matchDurationMs,
   });
 
   const unsub = game.subscribe((state, event) => {
@@ -161,10 +164,17 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
 
   function applyDice(value: number): number | null {
     if (destroyed) return null;
+    const roller = game.getState().currentColor;
     const v = game.applyDice(value);
     if (v == null) return null;
-    broadcast({ type: 'dice', value: v });
-    sync(); // silent — clients already applied dice
+    broadcast({ type: 'dice', value: v, color: roller });
+    const after = game.getState();
+    // Void roll already advanced — push turn/no_moves so clients don't stick
+    if (after.currentColor !== roller || after.dice == null) {
+      sync(after.lastEvent);
+    } else {
+      sync(); // silent — clients already applied dice
+    }
     return v;
   }
 
@@ -233,10 +243,17 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
       if (state.currentColor !== action.color) {
         return { ok: false, error: 'not_your_turn' };
       }
+      const roller = action.color;
       const v = game.roll();
       if (v == null) return { ok: false, error: 'roll_failed' };
-      broadcast({ type: 'dice', value: v });
-      sync();
+      broadcast({ type: 'dice', value: v, color: roller });
+      const after = game.getState();
+      // Need a 6 to leave yard — void rolls advance immediately; sync the turn
+      if (after.currentColor !== roller || after.dice == null) {
+        sync(after.lastEvent);
+      } else {
+        sync();
+      }
       return { ok: true };
     }
 
@@ -276,6 +293,12 @@ export function createLudoRoomHost(opts: LudoRoomHostOptions): LudoRoomHost {
     applyDice,
     applyMove,
     sync,
+    endMatch: () => {
+      if (destroyed) return false;
+      const ok = game.endMatch();
+      if (ok) sync(game.getState().lastEvent);
+      return ok;
+    },
   };
 }
 

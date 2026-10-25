@@ -179,13 +179,17 @@ function fanOut(clients: LudoGame[], cmds: LudoHostCommand[]) {
       assert(r.ok, `move ok @${steps}`);
     } else break;
 
-    // After dice|play, sync is silent — except winning move (carries `win`)
+    // After dice|play, sync is silent — except win / void-roll turn pass
     const syncCmds = batch.filter((c) => c.type === 'sync');
     for (const sc of syncCmds) {
       if (sc.type === 'sync') {
+        const t = sc.event?.type;
         const ok =
           sc.event === undefined ||
-          (sc.event != null && sc.event.type === 'win');
+          t === 'win' ||
+          t === 'turn' ||
+          t === 'no_moves' ||
+          t === 'match_over';
         assert(ok, `post action sync silent @${steps}`);
       }
     }
@@ -269,9 +273,14 @@ function fanOut(clients: LudoGame[], cmds: LudoHostCommand[]) {
 
   host.handleAction({ type: 'roll', roomId: 'arch-d', color: 0 });
   assert(batch.some((c) => c.type === 'dice'), 'broadcast dice');
+  // Face 4 with all in yard = void roll → sync carries `turn` (not silent)
   assert(
-    batch.some((c) => c.type === 'sync' && c.event === undefined),
-    'broadcast silent sync after dice',
+    batch.some(
+      (c) =>
+        c.type === 'sync' &&
+        (c.event === undefined || c.event?.type === 'turn'),
+    ),
+    'broadcast sync after dice',
   );
 
   fanOut([client], batch);

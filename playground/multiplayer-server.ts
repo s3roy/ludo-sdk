@@ -16,7 +16,7 @@ type ClientMsg =
   | {
       type: 'create';
       name?: string;
-      mode?: 'classic' | 'rush' | 'blitz';
+      mode?: 'classic' | 'rush' | 'blitz' | 'arena';
       maxPlayers?: 2 | 3 | 4;
       fillAi?: boolean;
     }
@@ -165,7 +165,7 @@ wss.on('connection', (ws) => {
         mode: msg.mode ?? 'rush',
         maxPlayers: msg.maxPlayers ?? 2,
         fillAi: msg.fillAi ?? false,
-        aiDifficulty: 'hard',
+        aiDifficulty: 'extreme',
       });
       const joined = lobby.join(roomId, {
         playerId: conn.playerId,

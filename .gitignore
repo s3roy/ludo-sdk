@@ -10,5 +10,8 @@ coverage/
 .env.*
 !.env.example
 
+# Demo wallet / session store (cash host)
+.data/
+
 # Local design refs — never publish
 design/

@@ -45,6 +45,8 @@ export type CreateLobbyRoomInput = {
   aiDifficulty?: AiDifficulty;
   /** Client HUD turn ring (cosmetic + optional offline). */
   turnTimer?: TurnTimerConfig | false;
+  /** Arena: total match length in ms (default 3 minutes). */
+  matchDurationMs?: number;
   /** Opaque table metadata (stake, currency, table name). */
   meta?: Record<string, unknown>;
   /** Backend lifecycle: miss-turn, auto-turn cap, leave. */
@@ -132,6 +134,7 @@ type InternalRoom = {
   fillAi: boolean;
   aiDifficulty: AiDifficulty;
   turnTimer?: TurnTimerConfig | false;
+  matchDurationMs?: number;
   meta?: Record<string, unknown>;
   policy: NormalizedRoomPolicy;
   players: Map<string, LobbyPlayer>;
@@ -141,6 +144,8 @@ type InternalRoom = {
   missStreak: Map<ColorId, number>;
   turnTimerHandle: ReturnType<typeof setTimeout> | null;
   turnArmedFor: { color: ColorId; turnId: number } | null;
+  /** Arena match clock. */
+  matchTimerHandle: ReturnType<typeof setTimeout> | null;
 };
 
 export type LudoLobby = {
@@ -213,7 +218,7 @@ function buildSeats(room: InternalRoom): PlayerConfig[] {
     }
     return {
       id: `ai-${color}`,
-      name: COLOR_NAMES[color],
+      name: 'Bot',
       kind: 'ai' as const,
       color,
       presence: 'ready' as const,
@@ -240,6 +245,7 @@ function toConfig(room: InternalRoom): LudoRoomConfig {
     autoAi: false,
     aiDifficulty: room.aiDifficulty,
     turnTimer: room.turnTimer !== undefined ? room.turnTimer : duration,
+    matchDurationMs: room.matchDurationMs,
   };
 }
 
@@ -270,6 +276,27 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     room.turnArmedFor = null;
   }
 
+  function clearMatchTimer(room: InternalRoom) {
+    if (room.matchTimerHandle) {
+      clearTimeout(room.matchTimerHandle);
+      room.matchTimerHandle = null;
+    }
+  }
+
+  function armMatchTimer(room: InternalRoom) {
+    clearMatchTimer(room);
+    if (!room.host || room.mode !== 'arena') return;
+    const state = room.host.getState();
+    if (state.phase === 'finished' || state.matchEndsAt == null) return;
+    const left = Math.max(0, state.matchEndsAt - Date.now());
+    room.matchTimerHandle = setTimeout(() => {
+      room.matchTimerHandle = null;
+      if (!room.host || room.status !== 'playing') return;
+      room.host.endMatch();
+      clearTurnTimer(room);
+    }, left + 20);
+  }
+
   function convertSeatToAi(
     room: InternalRoom,
     color: ColorId,
@@ -282,7 +309,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       room.host.setPresence(color, 'ready', {
         kind: 'ai',
         id: `ai-${color}`,
-        name: COLOR_NAMES[color],
+        name: 'Bot',
       });
       opts.broadcast(room.id, {
         type: 'seats',
@@ -386,6 +413,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     if (s.phase === 'waiting_move') {
       const legal = listLegalMoves(s);
       if (!legal.length) {
+        // Same as driveAi — pass instead of hanging the table
         room.host.handleAction({ type: 'forfeit', roomId: room.id, color });
         return;
       }
@@ -414,8 +442,9 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       maxPlayers,
       mode: input.mode ?? 'rush',
       fillAi: input.fillAi !== false,
-      aiDifficulty: input.aiDifficulty ?? 'hard',
+      aiDifficulty: input.aiDifficulty ?? 'extreme',
       turnTimer: input.turnTimer,
+      matchDurationMs: input.matchDurationMs,
       meta: input.meta,
       policy,
       players: new Map(),
@@ -424,6 +453,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       missStreak: new Map(),
       turnTimerHandle: null,
       turnArmedFor: null,
+      matchTimerHandle: null,
     };
     rooms.set(id, room);
     return { roomId: id, status: room.status as LobbyRoomStatus };
@@ -525,11 +555,13 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       broadcast: (cmd, id) => opts.broadcast(id, cmd),
       onDestroyed: (reason, state) => {
         clearTurnTimer(room);
+        clearMatchTimer(room);
         room.status = 'destroyed';
         opts.onRoomDestroyed?.(roomId, reason, state);
       },
       onWin: (winner, ranking, state) => {
         clearTurnTimer(room);
+        clearMatchTimer(room);
         room.status = 'finished';
         opts.onWin?.(roomId, winner, ranking, state);
       },
@@ -546,6 +578,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     opts.broadcast(roomId, { type: 'seats', seats: config.seats });
     driveAi(room);
     armTurnTimer(room);
+    armMatchTimer(room);
 
     return snapshot(room);
   }
@@ -569,7 +602,15 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
       }
       if (s.phase === 'waiting_move') {
         const legal = listLegalMoves(s);
-        if (!legal.length) break;
+        if (!legal.length) {
+          // Safety: never stall AI on a void roll (e.g. 1–5 with all in yard)
+          room.host.handleAction({
+            type: 'forfeit',
+            roomId: room.id,
+            color: s.currentColor,
+          });
+          continue;
+        }
         const pick = chooseAiMove(legal, s, room.aiDifficulty, rng);
         room.host.handleAction({
           type: 'move',
@@ -716,6 +757,7 @@ export function createLudoLobby(opts: LudoLobbyOptions): LudoLobby {
     const room = get(roomId);
     if (!room) return;
     clearTurnTimer(room);
+    clearMatchTimer(room);
     if (room.host) room.host.destroy(reason);
     else {
       opts.broadcast(roomId, { type: 'destroy', reason });

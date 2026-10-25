@@ -104,7 +104,14 @@ function readConfigFromUrl(): Partial<GameConfig> {
   const roomId = q.get('room');
   const timer = q.get('timer');
   const out: Partial<GameConfig> = {};
-  if (mode === 'classic' || mode === 'rush' || mode === 'blitz') out.mode = mode;
+  if (
+    mode === 'classic' ||
+    mode === 'rush' ||
+    mode === 'blitz' ||
+    mode === 'arena'
+  ) {
+    out.mode = mode;
+  }
   if (players === 2 || players === 3 || players === 4) out.players = players;
   if (ai === 'easy' || ai === 'normal' || ai === 'hard' || ai === 'extreme') {
     out.aiDifficulty = ai;
@@ -314,6 +321,7 @@ function start(cfg: GameConfig, demo?: DemoId) {
   }
   handle = mountLudoRoom(mountEl, room, {
     compact: false,
+    fill: true,
     sound: true,
     theme: cfg.theme,
     aiDelayMs: freeze ? 60_000 : 600,
@@ -337,7 +345,6 @@ function start(cfg: GameConfig, demo?: DemoId) {
       console.info('[timer] miss', ctx.color, ctx.phase, ctx.turnId);
     },
   });
-  mountEl.querySelector('.ludo-sdk')?.classList.add('ludo-sdk--fill');
 
   if (demo === 'star-stack') {
     applyStarStackDemo(handle);

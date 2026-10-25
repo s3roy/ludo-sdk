@@ -1,7 +1,7 @@
 {
   "name": "@ludorush/sdk",
   "version": "0.1.0",
-  "description": "Open-source self-hosted Ludo web SDK — Classic/Rush/Blitz, AI seats, host-authoritative rooms",
+  "description": "Open-source self-hosted Ludo web SDK — Classic/Rush/Blitz/Arena, AI seats, host-authoritative rooms",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,6 +27,7 @@
   "files": [
     "dist",
     "README.md",
+    "ARCHITECTURE.md",
     "DOCS.md",
     "RULES.md",
     "DESIGN.md",
@@ -39,6 +40,8 @@
     "dev": "vite --config vite.playground.config.ts",
     "multiplayer:server": "npx tsx playground/multiplayer-server.ts",
     "multiplayer": "npm run multiplayer:server",
+    "cash:server": "npx tsx playground/cash-server.ts",
+    "cash": "npm run cash:server",
     "build": "tsc --noEmit && vite build && vite build --config vite.playground.config.ts",
     "build:sdk": "tsc --noEmit && vite build",
     "build:web": "vite build --config vite.playground.config.ts",

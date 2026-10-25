@@ -6,6 +6,7 @@ import {
   type AiDifficulty,
 } from '../core/ai';
 import { LudoSounds, type SoundOptions } from '../audio/sounds';
+import { formatMatchClock } from '../core/arena';
 import {
   COLOR_HEX,
   COLOR_HIGHLIGHT,
@@ -108,6 +109,8 @@ export type LudoMountOptions = LudoLifecycleCallbacks & {
   aiDifficulty?: AiDifficulty;
   autoAi?: boolean;
   aiDelayMs?: number;
+  /** Arena: total match length in ms (default 3 minutes). */
+  matchDurationMs?: number;
   sound?: boolean | SoundOptions;
   /** Colors this client can operate. Default: non-AI seats. */
   interactiveColors?: ColorId[];
@@ -120,6 +123,11 @@ export type LudoMountOptions = LudoLifecycleCallbacks & {
   roomId?: string;
   /** Compact chrome (default true). */
   compact?: boolean;
+  /**
+   * Fit + center the board in the mount parent (largest square).
+   * Default true. Pass `false` for fixed-width embeds.
+   */
+  fill?: boolean;
   /** Show seat strip under board (default true). */
   showPlayers?: boolean;
   /**
@@ -282,6 +290,7 @@ export function mountLudo(
   let unsub: (() => void) | null = null;
   let aiTimer: ReturnType<typeof setTimeout> | null = null;
   let absentTimer: ReturnType<typeof setTimeout> | null = null;
+  let matchClockTimer: ReturnType<typeof setInterval> | null = null;
   let destroyed = false;
   let busy = false;
   let boardReady = false;
@@ -316,8 +325,59 @@ export function mountLudo(
 
   root.classList.add('ludo-sdk');
   if (opts.compact !== false) root.classList.add('ludo-sdk--compact');
-  root.innerHTML = shellHtml(opts.mode ?? 'rush', opts.showPlayers !== false);
+  const useFill = opts.fill !== false;
+  if (useFill) root.classList.add('ludo-sdk--fill');
+  const startMode = opts.mode ?? 'rush';
+  root.innerHTML = shellHtml(startMode, opts.showPlayers !== false);
   applyThemeToElement(root, theme);
+  // Arena chrome from frame 0 (don't wait for first sync / move)
+  if (startMode === 'arena') {
+    root.classList.add('ludo-sdk--arena');
+    const strip0 = root.querySelector<HTMLElement>('[data-ludo-scores]');
+    if (strip0) strip0.hidden = false;
+  }
+
+  /**
+   * Board square + HUD bands above/below must fit entirely inside the mount.
+   * Uses border-box stage height so desktop never clips the docks.
+   * Arena scorebug sits above the stage and must be reserved in the budget.
+   */
+  const syncFillSide = () => {
+    if (!root.classList.contains('ludo-sdk--fill')) return;
+    const w = root.clientWidth;
+    const h = root.clientHeight;
+    if (w < 2 || h < 2) return;
+    const hudH = Math.round(Math.min(42, Math.max(28, Math.min(w, h) * 0.055)));
+    const gap = 4;
+    const band = hudH + gap;
+    const arenaEl = root.querySelector<HTMLElement>('[data-ludo-scores]');
+    // Keep air between scorebug and stage (matches --ludo-arena-gap in CSS)
+    const arenaGap = 14;
+    const arenaH =
+      root.classList.contains('ludo-sdk--arena') && arenaEl && !arenaEl.hidden
+        ? Math.max(56, arenaEl.offsetHeight || 64) + arenaGap
+        : 0;
+    // side + 2*band + arenaH <= h  and  side <= w  (4px slack)
+    const side = Math.max(
+      0,
+      Math.floor(Math.min(w, h - 2 * band - arenaH) - 4),
+    );
+    const stageH = side + 2 * band;
+    root.style.setProperty('--king-hud-h', `${hudH}px`);
+    root.style.setProperty('--king-hud-gap', `${gap}px`);
+    root.style.setProperty('--ludo-fill-side', `${side}px`);
+    root.style.setProperty('--ludo-stage-h', `${stageH}px`);
+    root.style.setProperty('--ludo-arena-h', `${arenaH}px`);
+  };
+  let fillRo: ResizeObserver | null = null;
+  if (useFill && typeof ResizeObserver !== 'undefined') {
+    fillRo = new ResizeObserver(() => syncFillSide());
+    fillRo.observe(root);
+    requestAnimationFrame(syncFillSide);
+  } else if (useFill) {
+    window.addEventListener('resize', syncFillSide);
+    requestAnimationFrame(syncFillSide);
+  }
 
   const boardWrap = root.querySelector<HTMLElement>('[data-ludo-board]')!;
   const statusEl = root.querySelector<HTMLElement>('[data-ludo-status]')!;
@@ -374,7 +434,14 @@ export function mountLudo(
     const displayName = winnerPlayer?.name?.trim() || titleName;
     winTitle.textContent = `${displayName} wins!`;
     const mine = canControl(winner);
-    winSub.textContent = mine ? 'Victory' : 'Match over';
+    winSub.textContent =
+      state.mode === 'arena'
+        ? mine
+          ? 'Top score!'
+          : 'Time’s up — highest score wins'
+        : mine
+          ? 'Victory'
+          : 'Match over';
     const ranks =
       ranking.length > 0
         ? ranking
@@ -388,10 +455,14 @@ export function mountLudo(
         const n = COLOR_NAMES[c];
         const label = p?.name?.trim() || n[0]!.toUpperCase() + n.slice(1);
         const you = canControl(c) ? ' · you' : '';
+        const pts =
+          state.mode === 'arena'
+            ? ` <span class="ludo-sdk__win-pts">${state.scores?.[c] ?? 0} pts</span>`
+            : '';
         return `<li class="ludo-sdk__win-rank ludo-sdk__win-rank--c${c}">
           <span class="ludo-sdk__win-place">#${i + 1}</span>
           <span class="ludo-sdk__win-swatch" aria-hidden="true"></span>
-          <span class="ludo-sdk__win-name">${label}${you}</span>
+          <span class="ludo-sdk__win-name">${label}${you}${pts}</span>
         </li>`;
       })
       .join('');
@@ -451,11 +522,44 @@ export function mountLudo(
     return (first ?? 0) as ColorId;
   }
 
-  function yardTagLabel(color: ColorId, facing: ColorId): string {
-    if (color === facing) return 'You';
-    if (color === ((facing + 1) % 4)) return 'Computer 2';
-    if (color === ((facing + 2) % 4)) return 'Computer 3';
-    return 'Computer 4';
+  /** Yard / corner labels — real seat names, not “You / Computer N”. */
+  function yardTagLabel(color: ColorId): string {
+    const p = game.getState().players.find((x) => x.color === color);
+    if (!p) return '';
+    const raw = (p.name || '').trim();
+    const colorWord = COLOR_NAMES[color];
+    const looksGeneric =
+      !raw ||
+      raw.toLowerCase() === colorWord ||
+      /^computer\s*\d*$/i.test(raw) ||
+      /^player\s*\d*$/i.test(raw);
+
+    let label: string;
+    if (p.kind === 'ai') {
+      label = looksGeneric ? 'Bot' : raw;
+    } else if (looksGeneric) {
+      label = canControl(color) ? 'You' : 'Player';
+    } else {
+      label = raw;
+    }
+    return label.length > 12 ? `${label.slice(0, 11)}…` : label;
+  }
+
+  function refreshYardTags() {
+    const facing = facingColor();
+    for (let c = 0; c < 4; c++) {
+      const color = c as ColorId;
+      const tag = boardWrap.querySelector<HTMLElement>(
+        `[data-yard-tag="${color}"]`,
+      );
+      if (!tag) continue;
+      const corner = visualCornerForColor(color, facing);
+      for (const k of BOARD_CORNERS) {
+        tag.classList.remove(`ludo-sdk__yard-tag--${k}`);
+      }
+      tag.classList.add(`ludo-sdk__yard-tag--${corner}`);
+      tag.textContent = yardTagLabel(color);
+    }
   }
 
   /** Keep the local seat at bottom-left; remap King HUD + yard tags to match. */
@@ -478,17 +582,8 @@ export function mountLudo(
         }
         hud.classList.add(`ludo-sdk__hud--${corner}`);
       }
-      const tag = boardWrap.querySelector<HTMLElement>(
-        `[data-yard-tag="${color}"]`,
-      );
-      if (tag) {
-        for (const k of BOARD_CORNERS) {
-          tag.classList.remove(`ludo-sdk__yard-tag--${k}`);
-        }
-        tag.classList.add(`ludo-sdk__yard-tag--${corner}`);
-        tag.textContent = yardTagLabel(color, facing);
-      }
     }
+    refreshYardTags();
   }
 
   function ensureBoard() {
@@ -499,7 +594,7 @@ export function mountLudo(
         ? `<div class="ludo-sdk__yard-tags" aria-hidden="true">${([0, 1, 2, 3] as ColorId[])
             .map((c) => {
               const corner = visualCornerForColor(c, facing);
-              return `<span class="ludo-sdk__yard-tag ludo-sdk__yard-tag--${corner}" data-yard-tag="${c}">${yardTagLabel(c, facing)}</span>`;
+              return `<span class="ludo-sdk__yard-tag ludo-sdk__yard-tag--${corner}" data-yard-tag="${c}">${yardTagLabel(c)}</span>`;
             })
             .join('')}</div>`
         : '';
@@ -667,11 +762,41 @@ export function mountLudo(
     destroyed = true;
     if (aiTimer) clearTimeout(aiTimer);
     if (absentTimer) clearTimeout(absentTimer);
+    if (matchClockTimer) clearInterval(matchClockTimer);
+    matchClockTimer = null;
+    fillRo?.disconnect();
+    fillRo = null;
+    window.removeEventListener('resize', syncFillSide);
     stopTurnTimer(true);
     unsub?.();
     unsub = null;
     root.innerHTML = '';
-    root.classList.remove('ludo-sdk', 'ludo-sdk--compact');
+    root.classList.remove(
+      'ludo-sdk',
+      'ludo-sdk--compact',
+      'ludo-sdk--fill',
+      'ludo-sdk--arena',
+    );
+    root.style.removeProperty('--ludo-fill-side');
+    root.style.removeProperty('--ludo-stage-h');
+    root.style.removeProperty('--ludo-arena-h');
+  }
+
+  function armMatchClock(state: GameState) {
+    if (matchClockTimer) {
+      clearInterval(matchClockTimer);
+      matchClockTimer = null;
+    }
+    if (state.mode !== 'arena' || state.matchEndsAt == null) return;
+    matchClockTimer = setInterval(() => {
+      if (destroyed) return;
+      const s = game.getState();
+      if (s.mode !== 'arena') return;
+      paintChrome(s);
+      if (!opts.controlled && s.phase !== 'finished') {
+        game.checkMatchClock();
+      }
+    }, 250);
   }
 
   function scheduleAbsent(state: GameState) {
@@ -1031,6 +1156,7 @@ export function mountLudo(
       scheduleAbsent(next);
       scheduleTurnTimer(next);
       scheduleSoloMove(next);
+      armMatchClock(next);
     }
   }
 
@@ -1061,6 +1187,83 @@ export function mountLudo(
     statusEl.innerHTML = statusText(state, {
       interactive: interactive,
     });
+    if (state.mode === 'arena') {
+      const leftMs =
+        state.matchEndsAt != null
+          ? state.matchEndsAt - Date.now()
+          : (state.matchDurationMs ?? 0);
+      const clock = formatMatchClock(leftMs);
+      const urgent = leftMs <= 30_000 && state.phase !== 'finished';
+      const critical = leftMs <= 10_000 && state.phase !== 'finished';
+      const pct =
+        state.matchDurationMs && state.matchDurationMs > 0
+          ? Math.max(0, Math.min(100, (leftMs / state.matchDurationMs) * 100))
+          : 100;
+      modeEl.innerHTML = `<span class="ludo-sdk__badge-bolt">⏱</span> ARENA`;
+      const wasArena = root.classList.contains('ludo-sdk--arena');
+      root.classList.add('ludo-sdk--arena');
+      const strip = root.querySelector<HTMLElement>('[data-ludo-scores]');
+      if (strip) {
+        strip.hidden = false;
+        const ranked = [...state.players].sort(
+          (a, b) =>
+            (state.scores?.[b.color] ?? 0) - (state.scores?.[a.color] ?? 0),
+        );
+        const lead = ranked[0]?.color;
+        const maxPts = Math.max(
+          0,
+          ...state.players.map((p) => state.scores?.[p.color] ?? 0),
+        );
+        const seats = state.players
+          .map((p) => {
+            const pts = state.scores?.[p.color] ?? 0;
+            const name =
+              p.kind === 'ai'
+                ? p.name?.trim() &&
+                  p.name.toLowerCase() !== COLOR_NAMES[p.color]
+                  ? p.name
+                  : 'Bot'
+                : p.name?.trim() || 'You';
+            const on =
+              p.color === state.currentColor && state.phase !== 'finished'
+                ? ' ludo-sdk__arena-seat--on'
+                : '';
+            const isLead = lead === p.color && maxPts > 0;
+            const crown = isLead ? ' ludo-sdk__arena-seat--lead' : '';
+            return `<div class="ludo-sdk__arena-seat ludo-sdk__arena-seat--c${p.color}${on}${crown}">
+              <span class="ludo-sdk__arena-seat-top">
+                <span class="ludo-sdk__arena-pin" aria-hidden="true"></span>
+                ${isLead ? '<span class="ludo-sdk__arena-crown" aria-hidden="true">♛</span>' : ''}
+              </span>
+              <span class="ludo-sdk__arena-pts">${pts}</span>
+              <span class="ludo-sdk__arena-unit">PTS</span>
+              <span class="ludo-sdk__arena-name">${name}</span>
+            </div>`;
+          })
+          .join('');
+        strip.innerHTML = `
+          <div class="ludo-sdk__arena-clock${urgent ? ' ludo-sdk__arena-clock--urgent' : ''}${critical ? ' ludo-sdk__arena-clock--critical' : ''}">
+            <div class="ludo-sdk__arena-clock-ring" style="--arena-pct:${pct.toFixed(1)}">
+              <span class="ludo-sdk__arena-clock-time">${clock}</span>
+            </div>
+            <span class="ludo-sdk__arena-clock-tag">TIME</span>
+          </div>
+          <div class="ludo-sdk__arena-divider" aria-hidden="true"></div>
+          <div class="ludo-sdk__arena-seats">${seats}</div>`;
+        if (!matchClockTimer) armMatchClock(state);
+        if (!wasArena) requestAnimationFrame(syncFillSide);
+      }
+      return;
+    }
+    if (root.classList.contains('ludo-sdk--arena')) {
+      root.classList.remove('ludo-sdk--arena');
+      requestAnimationFrame(syncFillSide);
+    }
+    const strip = root.querySelector<HTMLElement>('[data-ludo-scores]');
+    if (strip) {
+      strip.hidden = true;
+      strip.innerHTML = '';
+    }
     const winN = tokensToWin(state.mode);
     modeEl.innerHTML = `<span class="ludo-sdk__badge-bolt">⚡</span> ${state.mode.toUpperCase()} · FIRST TO ${winN}`;
   }
@@ -1090,6 +1293,7 @@ export function mountLudo(
     syncTokens(tokensLayer(), state, legal, theme, facingColor());
     paintChrome(state);
     paintKingHuds(state);
+    refreshYardTags();
 
     const mine =
       canControl(state.currentColor) &&
@@ -1112,20 +1316,24 @@ export function mountLudo(
               ? ' ludo-sdk__player--ready'
               : '';
           const you = canControl(p.color);
-          let role = you ? 'You' : p.kind === 'ai' ? 'AI' : p.name;
-          if (presence === 'empty') role = 'Open';
-          else if (presence === 'joining') role = 'Joining…';
-          else if (presence === 'disconnected') role = 'Away';
+          const seatName =
+            presence === 'empty'
+              ? 'Open'
+              : presence === 'joining'
+                ? 'Joining…'
+                : presence === 'disconnected'
+                  ? 'Away'
+                  : yardTagLabel(p.color);
           const crown = you ? '<span class="ludo-sdk__player-crown">👑</span>' : '';
           const done = state.ranking.includes(p.color) ? ' ✓' : '';
-          const name = COLOR_NAMES[p.color];
+          const colorWord = COLOR_NAMES[p.color];
           const badge =
             presence !== 'ready' && p.kind !== 'ai'
               ? `<span class="ludo-sdk__player-presence">${presenceLabel(presence)}</span>`
               : '';
           return `<div class="ludo-sdk__player ludo-sdk__player--c${p.color}${active}${absent}" data-presence="${presence}">
             <span class="ludo-sdk__player-dot"></span>
-            <span class="ludo-sdk__player-label">${name[0].toUpperCase()}${name.slice(1)} · ${role}${done}</span>
+            <span class="ludo-sdk__player-label">${colorWord[0]!.toUpperCase()}${colorWord.slice(1)} · ${seatName}${done}</span>
             ${badge}
             ${crown}
           </div>`;
@@ -1260,6 +1468,8 @@ export function mountLudo(
   function reset(next?: LudoMountOptions) {
     if (aiTimer) clearTimeout(aiTimer);
     if (absentTimer) clearTimeout(absentTimer);
+    if (matchClockTimer) clearInterval(matchClockTimer);
+    matchClockTimer = null;
     stopTurnTimer(true);
     hideWinOverlay();
     if (next) opts = { ...opts, ...next };
@@ -1333,8 +1543,17 @@ export function mountLudo(
       if (cmd.type === 'sync') {
         if (cmd.event !== undefined) game.syncState(cmd.state, cmd.event);
         else game.syncState(cmd.state);
-      } else if (cmd.type === 'dice') game.applyDice(cmd.value);
-      else if (cmd.type === 'play') game.move(cmd.tokenId);
+      } else if (cmd.type === 'dice') {
+        // Only apply when it matches this client's pending roll — avoids
+        // out-of-order dice sticking a seat on waiting_move with no legal moves.
+        const s = game.getState();
+        if (
+          s.phase === 'waiting_roll' &&
+          (cmd.color == null || cmd.color === s.currentColor)
+        ) {
+          game.applyDice(cmd.value);
+        }
+      } else if (cmd.type === 'play') game.move(cmd.tokenId);
       else if (cmd.type === 'presence') {
         handle.setSeatPresence(cmd.color, cmd.presence, {
           name: cmd.name,
@@ -1513,6 +1732,10 @@ export function mountLudoRoom(
     controlled: room.controlled ?? false,
     turnTimer: extra.turnTimer ?? room.turnTimer,
     absentSeat: extra.absentSeat ?? room.absentSeat,
+    matchDurationMs:
+      extra.matchDurationMs ??
+      room.matchDurationMs ??
+      (room.mode === 'arena' ? 180_000 : undefined),
   });
 }
 
@@ -1524,6 +1747,7 @@ function makeGame(opts: LudoMountOptions): LudoGame {
   return createGame({
     mode: opts.mode ?? 'rush',
     players,
+    matchDurationMs: opts.matchDurationMs,
   });
 }
 
@@ -1561,6 +1785,17 @@ function kingHud(color: ColorId, corner: 'tl' | 'tr' | 'bl' | 'br'): string {
 }
 
 function shellHtml(mode: GameMode, showPlayers: boolean): string {
+  const arenaHidden = mode === 'arena' ? '' : ' hidden';
+  const arenaSeed =
+    mode === 'arena'
+      ? `<div class="ludo-sdk__arena-clock">
+            <div class="ludo-sdk__arena-clock-ring" style="--arena-pct:100">
+              <span class="ludo-sdk__arena-clock-time">3:00</span>
+            </div>
+            <span class="ludo-sdk__arena-clock-tag">ARENA</span>
+          </div>
+          <div class="ludo-sdk__arena-seats" data-ludo-arena-seats></div>`
+      : '';
   return `
     <div class="ludo-sdk__header">
       <div class="ludo-sdk__brand">
@@ -1569,6 +1804,7 @@ function shellHtml(mode: GameMode, showPlayers: boolean): string {
       </div>
       <span class="ludo-sdk__badge" data-ludo-mode><span class="ludo-sdk__badge-bolt">⚡</span> ${mode.toUpperCase()}</span>
     </div>
+    <div class="ludo-sdk__arena-bar" data-ludo-scores${arenaHidden}>${arenaSeed}</div>
     <div class="ludo-sdk__stage" data-ludo-stage>
       ${kingHud(1, 'tl')}
       ${kingHud(2, 'tr')}

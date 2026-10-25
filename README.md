@@ -1,10 +1,10 @@
 # @ludorush/sdk
 
-Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, and host-authoritative multiplayer.
+Open-source **self-hosted Ludo web SDK** — pure TypeScript rules engine, SVG board UI, AI seats, host-authoritative multiplayer, and an optional cash-table demo.
 
 ### [▶ Play in the browser](https://s3roy.github.io/ludo-sdk/)
 
-Generate a game on the client (mode · seats · AI) and play vs bots — no signup. Share the URL to reopen the same settings.
+Generate a game on the client (mode · **2–4 players** · AI) and play vs bots — no signup. Share the URL to reopen the same settings.
 
 ```bash
 npm i @ludorush/sdk
@@ -14,33 +14,56 @@ npm i @ludorush/sdk
 import { mountLudoRoom, offlineRoom } from '@ludorush/sdk'
 import '@ludorush/sdk/style.css'
 
-mountLudoRoom('#board', offlineRoom({ mode: 'rush', aiDifficulty: 'hard' }), {
+mountLudoRoom('#board', offlineRoom({ mode: 'rush', players: 4, aiDifficulty: 'hard' }), {
   theme: 'king',
 })
 ```
 
 ## Features
 
-- **Classic / Rush / Blitz** — open on 6; win with 4 / 2 / 1 tokens
-- **Headless engine** — validate rolls/moves on your server with the same code
-- **King theme** — Ludo King–style pins, corner HUDs, turn timer ring around the gold card
+- **Classic / Rush / Blitz / Arena** — open on 6; win by tokens **or** timed points
+- **2–4 seats** — human + AI fill, or all-human lobby
+- **Headless engine** — same code validates rolls/moves on your server
+- **King theme** — Ludo King–style pins, corner HUDs, turn timer ring
 - **Board facing** — your seat always bottom-left (`boardFacing` / `mountHostedLudo`)
 - **AI** — easy / normal / hard / **extreme** (expectiminimax)
 - **Themes** — `king` · `rush` · `felt` · `neon` · `ivory` · `midnight`
-- **Backend-owned rooms** — you decide who plays → `lobby.createMatch({ players })`
-- **Policies** — turn clock, auto/skip on miss, `maxAutoTurns`, leave → AI
-- **Hosted client** — `mountHostedLudo` (UI + intents only)
-- **Lifecycle callbacks** — `onTurn` / `onMissTurn` / `onWin` / `onDestroy` / …
+- **Backend-owned rooms** — `createLudoLobby` · policies · hosted client
+- **Cash playground** — demo wallet + stake escrow (`cash.html` + `cash:server`)
 
 ## Modes
 
-| Mode | Leave yard | Tokens to win |
+| Mode | Leave yard | Win condition |
 |------|------------|---------------|
-| `classic` | Roll **6** | **4** |
-| `rush` | Roll **6** | **2** |
-| `blitz` | Roll **6** | **1** |
+| `classic` | Roll **6** | Finish **4** tokens |
+| `rush` | Roll **6** | Finish **2** tokens |
+| `blitz` | Roll **6** | Finish **1** token |
+| `arena` | Roll **6** | **3 min** clock · highest score wins |
 
-Full rules: [RULES.md](./RULES.md).
+**Arena points:** +1 move · +2 open from yard · +10 capture · +25 finish (stack on the same play).
+
+Full rules: [RULES.md](./RULES.md). Architecture: [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+## Architecture (short)
+
+```
+┌──────────────────────────┐     intents (roll/move)      ┌──────────────────────────┐
+│  Browser                 │ ───────────────────────────► │  Your server             │
+│  mountHostedLudo / UI    │                              │  createLudoLobby()       │
+│  paint + animations only │ ◄─────────────────────────── │  engine + AI + settle    │
+└──────────────────────────┘     LudoHostCommand (sync)   └──────────────────────────┘
+```
+
+| Layer | Owns |
+|-------|------|
+| **`src/core`** | Rules, dice, legality, scores, AI |
+| **`src/server/lobby`** | Rooms, seats, turn/match clocks, `driveAi` |
+| **`src/sdk/mount` + UI** | Board paint, dice anim, themes — never authoritative |
+| **Your host** (e.g. `cash-server`) | Auth, wallet, escrow, WebSocket fan-out |
+
+Offline demos use `mountLudo` / `offlineRoom` with `controlled: false`. Production must use **lobby + `mountHostedLudo`**.
+
+Deep dive: **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
 ## Quick start (offline)
 
@@ -50,10 +73,10 @@ import '@ludorush/sdk/style.css'
 
 const game = mountLudoRoom('#board', offlineRoom({
   mode: 'rush',
-  players: 4,
+  players: 4,          // 2 | 3 | 4
   aiDifficulty: 'hard',
   humanColor: 0,
-}), { theme: 'king', sound: true })
+}), { theme: 'king', sound: true, fill: true })
 
 game.destroy()
 ```
@@ -86,8 +109,6 @@ const match = lobby.createMatch({
 if (!match.ok) throw new Error(match.error)
 
 lobby.action(match.roomId, 'u1', intent)
-lobby.leave(match.roomId, 'u1')
-lobby.destroy(match.roomId)
 ```
 
 ### Client (hosted UI)
@@ -98,6 +119,7 @@ import '@ludorush/sdk/style.css'
 
 const ui = mountHostedLudo('#board', {
   roomId: match.roomId,
+  mode: 'rush',
   myColor: match.seats['u1'], // board rotates so this yard is bottom-left
   seats: match.config.seats,
   theme: 'king',
@@ -120,23 +142,38 @@ const ui = mountHostedLudo('#board', {
 | `maxAutoTurns` | `3` | Miss streak before seat → AI (`0` = never) |
 | `onLeave` | `'convert_ai'` | `'convert_ai'` · `'forfeit'` · `'destroy_if_empty'` |
 
-### Low-level (create → join → start)
+See **[DOCS.md](./DOCS.md)** for rooms, timer, host commands.
 
-```ts
-const { roomId } = lobby.createRoom({ mode: 'rush', maxPlayers: 4, fillAi: true })
-lobby.join(roomId, { playerId: 'u1', name: 'Ada' })
-lobby.join(roomId, { playerId: 'u2', name: 'Bob' })
-lobby.start(roomId)
+## Local playgrounds
+
+```bash
+npm install
+npm run dev                 # Vite → http://localhost:5195/
 ```
 
-See **[DOCS.md](./DOCS.md)** for rooms, timer, host commands.
+| URL | What |
+|-----|------|
+| [`/`](http://localhost:5195/) | Offline vs AI — mode · **players 2–4** · difficulty · theme |
+| [`/multi.html`](http://localhost:5195/multi.html) | Free WS lobby (`npm run multiplayer:server`) |
+| [`/cash.html`](http://localhost:5195/cash.html) | Demo chips + stake (`npm run cash:server`) |
+
+```bash
+# Terminal A — cash host (wallet + lobby)
+npm run cash:server         # :8790  (Vite proxies /api + /ws)
+
+# Terminal B — UI
+npm run dev                 # open /cash.html → pick mode + players → Play vs AI
+```
+
+Cash demo: register → stake → **Players** (2 / 3 / 4) → vs AI (fills empty seats) or open human table. Winner takes pot − 0.5% rake. Not real money.
 
 ## Docs
 
 | Doc | Contents |
 |-----|----------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Host-authoritative flow · cash layers · trust boundary |
 | [DOCS.md](./DOCS.md) | Rooms, timer, seat presence, host commands, headless |
-| [RULES.md](./RULES.md) | Engine rules (safe squares, blocks, extras) |
+| [RULES.md](./RULES.md) | Engine rules (safe squares, blocks, Arena scoring) |
 | [DESIGN.md](./DESIGN.md) | Colour system & CSS variables |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev setup & tests |
 

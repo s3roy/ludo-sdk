@@ -27,6 +27,10 @@ export type HostedMountOptions = {
   transport: HostedTransport;
   theme?: LudoThemeId | string;
   compact?: boolean;
+  /** Fit + center board in mount (default true). */
+  fill?: boolean;
+  /** Arena match length (ms). */
+  matchDurationMs?: number;
   sound?: LudoMountOptions['sound'];
   turnTimer?: LudoMountOptions['turnTimer'];
   onWin?: LudoMountOptions['onWin'];
@@ -70,6 +74,8 @@ export function mountHostedLudo(
     autoAi: false,
     theme: options.theme ?? 'felt',
     compact: options.compact,
+    fill: options.fill,
+    matchDurationMs: options.matchDurationMs,
     sound: options.sound,
     turnTimer: options.turnTimer ?? false,
     absentSeat: { action: 'none' },

@@ -1,5 +1,5 @@
 import type { AiDifficulty } from '../core/ai';
-import { COLOR_NAMES, seatColorsForCount } from '../core/constants';
+import { seatColorsForCount } from '../core/constants';
 import type {
   ColorId,
   GameEvent,
@@ -33,6 +33,8 @@ export type LudoRoomConfig = {
   turnTimer?: TurnTimerConfig | false;
   /** What to do when the current seat is empty / disconnected. */
   absentSeat?: AbsentSeatConfig;
+  /** Arena: total match length in ms (default 3 minutes). */
+  matchDurationMs?: number;
 };
 
 /** Intent from a client UI (send to your backend). */
@@ -61,7 +63,7 @@ export type LudoClientAction =
 /** Commands your backend pushes to clients. */
 export type LudoHostCommand =
   | { type: 'sync'; state: GameState; event?: GameEvent | null }
-  | { type: 'dice'; value: number }
+  | { type: 'dice'; value: number; color?: ColorId }
   | { type: 'play'; tokenId: string }
   | {
       type: 'presence';
@@ -123,10 +125,10 @@ export function offlineRoom(opts: {
   const colors = seatColorsForCount(n, human);
   const seats: PlayerConfig[] = colors.map((color) => ({
     id: `seat-${color}`,
-    name: COLOR_NAMES[color][0].toUpperCase() + COLOR_NAMES[color].slice(1),
+    name: color === human ? 'You' : 'Bot',
     kind: color === human ? 'human' : 'ai',
     color,
-    presence: color === human ? 'ready' : 'ready',
+    presence: 'ready' as const,
   }));
   return {
     roomId: opts.roomId ?? `local-${Date.now()}`,

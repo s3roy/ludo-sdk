@@ -72,23 +72,23 @@
         max-height: none;
         margin: 0;
         padding:
-          var(--safe-t)
-          var(--safe-r)
-          var(--safe-b)
-          var(--safe-l);
+          max(2px, var(--safe-t))
+          max(2px, var(--safe-r))
+          max(2px, var(--safe-b))
+          max(2px, var(--safe-l));
         grid-template-columns: 1fr;
         grid-template-rows: auto 1fr auto;
         gap: 0;
         box-sizing: border-box;
         overflow: hidden;
       }
-      body.playing .brand {
-        padding: 6px 12px;
-        z-index: 4;
-        flex-shrink: 0;
+      body.playing .brand,
+      body.playing .lede {
+        display: none !important;
       }
-      body.playing .brand h1 { font-size: 1rem; }
-      body.playing .lede { display: none; }
+      body.playing .page {
+        grid-template-rows: 1fr;
+      }
       body.playing .panel--stage {
         position: relative;
         min-height: 0;
@@ -97,18 +97,22 @@
         padding: 0;
         overflow: hidden;
       }
-      body.playing #stage {
+      body.playing #stage,
+      body.playing #mount {
         position: relative;
+        display: block;
         width: 100%;
         height: 100%;
         max-width: none;
         min-height: 0;
+        min-width: 0;
         padding: 0;
       }
-      body.playing #stage .ludo-sdk {
+      body.playing #mount .ludo-sdk {
         width: 100%;
         height: 100%;
-        max-width: none;
+        max-width: none !important;
+        margin: 0;
       }
       body.playing aside.panel {
         position: fixed;
@@ -119,7 +123,8 @@
         max-height: 42dvh;
         overflow: auto;
         border-radius: 20px 20px 0 0;
-        transform: translateY(calc(100% - 48px));
+        /* Fully off-screen until opened — don't steal board height */
+        transform: translateY(100%);
         transition: transform 0.22s ease;
         padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         box-shadow: 0 -8px 32px #00000066;
@@ -140,7 +145,12 @@
           grid-template-columns: 1fr 300px;
           grid-template-rows: auto 1fr;
         }
-        body.playing .brand { grid-column: 1 / -1; }
+        body.playing .brand {
+          display: flex !important;
+          grid-column: 1 / -1;
+          padding: 6px 12px;
+        }
+        body.playing .brand h1 { font-size: 1rem; }
         body.playing aside.panel {
           position: relative;
           transform: none;
@@ -333,6 +343,7 @@
             <option value="classic">Classic · open on 6 · win with 4</option>
             <option value="rush" selected>Rush · open on 6 · win with 2</option>
             <option value="blitz">Blitz · open on 6 · win with 1</option>
+            <option value="arena">Arena · 3 min · most points wins</option>
           </select>
         </div>
         <div class="field">

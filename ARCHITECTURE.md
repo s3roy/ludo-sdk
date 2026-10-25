@@ -89,6 +89,74 @@ const ui = mountHostedLudo('#board', {
 `mountLudo` / `offlineRoom` with `controlled: false` is for local demos only.
 Production rooms must use `createLudoLobby` + `mountHostedLudo`.
 
+## Package layout
+
+```
+src/
+  core/          # LudoGame engine, moves, Arena scoring, AI
+  server/        # createLudoLobby (rooms, clocks, driveAi)
+  sdk/           # mountLudo, mountHostedLudo, createLudoRoomHost
+  client/        # hosted transport helper
+  ui/            # SVG board, themes, styles.css
+playground/
+  index.html     # offline · mode + players 2–4 + AI
+  multi.html     # free WS lobby
+  cash.html      # demo wallet + stake · players 2–4
+  cash-server.ts # wallet + escrow + lobby on :8790
+```
+
+## Self-host layers (SUD-style)
+
+Three processes — keep them separate so you can swap any one:
+
+| Layer | Package / process | Owns |
+|-------|-------------------|------|
+| **Rules SDK** | `@ludorush/sdk` (`src/core`, `src/server/lobby`) | Dice, legality, AI, win / Arena clock |
+| **Cash host** | `playground/cash-server.ts` (`npm run cash:server`) | Login, wallet, stake escrow, settle |
+| **Frontend** | Vite playground (`cash.html` / `multi.html`) | Paint + intents only |
+
+```
+Browser (cash.html)
+   │ HTTP  /api/register|/login|/me|/topup
+   │ WS    auth → create(mode, maxPlayers, fillAi)/join/action
+   ▼
+Cash host :8790
+   │ wallet file (.data/cash-wallet.json)
+   │ escrow on create/join
+   │ createLudoLobby({ aiDifficulty: 'extreme' })
+   ▼
+Lobby engine (in-process)
+   │ broadcast LudoHostCommand (sync / dice / play)
+   ▼
+mountHostedLudo → paint only (scorebug, board, HUDs)
+```
+
+**Data flow for one turn**
+
+1. Client taps dice → `transport.send({ type: 'roll' })`.
+2. Cash host → `lobby.action(roomId, userId, action)` (seat-authenticated).
+3. Host rolls RNG, applies engine, `broadcast({ type: 'sync', state, event })`.
+4. Client `dispatch(cmd)` → animate + paint. Never applies its own dice.
+
+**Arena**
+
+- Lobby sets `matchDurationMs` (default 180s) and `matchEndsAt` on start.
+- Engine awards points; when the clock hits zero, `endMatch()` ranks by score.
+- UI scorebug is cosmetic — scores come from synced `GameState.scores`.
+
+**Foolproof cash rules**
+
+1. Client never rolls, moves, or settles — only `action` intents with server `playerId`.
+2. Stake is debited **before** seat join; pot lives in server escrow.
+3. `onWin` credits winner (pot − rake); AI win → house keeps pot (stake forfeited).
+4. Cancel only while table is `open` (full refund); mid-game leave → convert_ai policy.
+5. AI defaults to **extreme** (expectiminimax). Hard uses a shallower search.
+6. **Players 2–4**: `fillAi: true` fills empty seats and auto-starts; human tables wait until seats fill (or host starts).
+
+Demo: `npm run cash:server` + `npm run dev` → http://localhost:5195/cash.html
+
+Free (no wallet) multi: `npm run multiplayer:server` → http://localhost:5195/multi.html
+
 ## Themes
 
 Client-only. Call `ui.setTheme('neon')` anytime. Board SVG + chrome CSS update together.

@@ -1,4 +1,10 @@
 import {
+  ARENA_DEFAULT_DURATION_MS,
+  emptyScores,
+  pointsForMove,
+  rankByArenaScore,
+} from './arena';
+import {
   COLOR_NAMES,
   seatColorsForCount,
   tokenId,
@@ -18,7 +24,7 @@ import type {
 function defaultPlayers(count = 4): PlayerConfig[] {
   return seatColorsForCount(count, 0).map((color, i) => ({
     id: `p-${COLOR_NAMES[color]}`,
-    name: COLOR_NAMES[color][0].toUpperCase() + COLOR_NAMES[color].slice(1),
+    name: i === 0 ? 'You' : 'Bot',
     kind: i === 0 ? 'human' : 'ai',
     color,
   }));
@@ -49,16 +55,24 @@ function buildTokens(players: PlayerConfig[]): Token[] {
  * - Void 6 (no legal moves, e.g. home needs 1–5) → turn passes, no bonus roll
  * - A third consecutive 6 in one turn is impossible (P=0)
  * - Capture or finish a token → extra roll
- * - First to tokensToWin (classic 4 / rush 2) wins
+ * - First to tokensToWin (classic 4 / rush 2 / blitz 1) wins
+ * - Arena: match clock + points; highest score when time ends wins
  */
 export class LudoGame {
   private state: GameState;
   private rng: () => number;
+  private now: () => number;
   private listeners = new Set<(s: GameState, e: GameEvent | null) => void>();
 
   constructor(opts: EngineOptions) {
     const players = opts.players?.length ? opts.players : defaultPlayers(4);
     this.rng = opts.rng ?? Math.random;
+    this.now = opts.now ?? Date.now;
+    const isArena = opts.mode === 'arena';
+    const matchDurationMs = isArena
+      ? Math.max(15_000, opts.matchDurationMs ?? ARENA_DEFAULT_DURATION_MS)
+      : null;
+    const t0 = this.now();
     this.state = {
       mode: opts.mode,
       players,
@@ -71,6 +85,9 @@ export class LudoGame {
       winner: null,
       lastEvent: { type: 'turn', color: players[0].color },
       turnId: 1,
+      scores: emptyScores(players.map((p) => p.color)),
+      matchDurationMs,
+      matchEndsAt: matchDurationMs != null ? t0 + matchDurationMs : null,
     };
   }
 
@@ -95,6 +112,7 @@ export class LudoGame {
 
   /** Local RNG roll. After two sixes this turn, only 1–5 (third 6 has P=0). */
   roll(): number | null {
+    if (this.checkMatchClock()) return null;
     if (this.state.phase !== 'waiting_roll') return null;
     const face =
       this.state.consecutiveSixes >= 2
@@ -109,12 +127,10 @@ export class LudoGame {
    * A third consecutive 6 in the same turn is rejected (P=0).
    */
   applyDice(value: number): number | null {
+    if (this.checkMatchClock()) return null;
     if (this.state.phase !== 'waiting_roll') return null;
     if (!Number.isInteger(value) || value < 1 || value > 6) return null;
     if (value === 6 && this.state.consecutiveSixes >= 2) return null;
-
-    this.state.dice = value;
-    this.emit({ type: 'roll', color: this.state.currentColor, value });
 
     if (value === 6) {
       this.state.consecutiveSixes += 1;
@@ -122,11 +138,14 @@ export class LudoGame {
       this.state.consecutiveSixes = 0;
     }
 
+    this.state.dice = value;
     this.state.phase = 'waiting_move';
+    this.emit({ type: 'roll', color: this.state.currentColor, value });
+
     const moves = listLegalMoves(this.state);
     if (moves.length === 0) {
-      // Void roll (incl. a 6 that cannot move) — pass turn. Bonus 6 only
-      // after a legal move is played (see applyChosen).
+      // Void roll (e.g. 1–5 with all tokens in yard — need a 6 to enter).
+      // Pass turn immediately so AI/humans never stall on waiting_move.
       this.emit({ type: 'no_moves', color: this.state.currentColor });
       this.state.dice = null;
       this.state.phase = 'waiting_roll';
@@ -144,7 +163,15 @@ export class LudoGame {
    * when hosts broadcast `{dice|play}` then `{sync}`.
    */
   syncState(next: GameState, event?: GameEvent | null): void {
-    this.state = structuredClone(next);
+    const cloned = structuredClone(next);
+    if (!cloned.scores) {
+      cloned.scores = emptyScores(cloned.players.map((p) => p.color));
+    }
+    if (cloned.mode !== 'arena') {
+      cloned.matchDurationMs = cloned.matchDurationMs ?? null;
+      cloned.matchEndsAt = cloned.matchEndsAt ?? null;
+    }
+    this.state = cloned;
     if (arguments.length < 2) {
       const snap = this.getState();
       for (const fn of this.listeners) fn(snap, null);
@@ -154,6 +181,7 @@ export class LudoGame {
   }
 
   move(tokenIdStr: string): boolean {
+    if (this.checkMatchClock()) return false;
     if (this.state.phase !== 'waiting_move' || this.state.dice == null) return false;
     const chosen = listLegalMoves(this.state).find((m) => m.tokenId === tokenIdStr);
     if (!chosen) return false;
@@ -161,6 +189,7 @@ export class LudoGame {
   }
 
   play(move: LegalMove): boolean {
+    if (this.checkMatchClock()) return false;
     if (this.state.phase !== 'waiting_move') return false;
     const legal = listLegalMoves(this.state);
     const ok = legal.some(
@@ -194,6 +223,18 @@ export class LudoGame {
     }
 
     this.emit({ type: 'move', color, tokenId: move.tokenId, move });
+
+    if (this.state.mode === 'arena') {
+      const { delta, parts } = pointsForMove(move);
+      this.state.scores[color] = (this.state.scores[color] ?? 0) + delta;
+      this.emit({
+        type: 'score',
+        color,
+        delta,
+        total: this.state.scores[color]!,
+        reasons: parts,
+      });
+    }
 
     if (hasWon(this.state, color, this.state.mode)) {
       if (!this.state.ranking.includes(color)) {
@@ -252,18 +293,56 @@ export class LudoGame {
     return true;
   }
 
+  /**
+   * Arena: end the match now (timer / host). Highest score wins.
+   * Returns true if the game transitioned to finished.
+   */
+  endMatch(): boolean {
+    if (this.state.mode !== 'arena') return false;
+    if (this.state.phase === 'finished') return false;
+    const ranking = rankByArenaScore(this.state);
+    this.state.ranking = ranking;
+    this.state.winner = ranking[0] ?? null;
+    this.state.phase = 'finished';
+    this.state.dice = null;
+    this.state.consecutiveSixes = 0;
+    this.emit({ type: 'match_over', ranking: [...ranking] });
+    if (this.state.winner != null) {
+      this.emit({
+        type: 'win',
+        color: this.state.winner,
+        ranking: [...ranking],
+      });
+    }
+    return true;
+  }
+
+  /** If the Arena clock has elapsed, end the match. */
+  checkMatchClock(nowMs?: number): boolean {
+    if (this.state.mode !== 'arena') return false;
+    if (this.state.phase === 'finished') return true;
+    const ends = this.state.matchEndsAt;
+    if (ends == null) return false;
+    if ((nowMs ?? this.now()) < ends) return false;
+    return this.endMatch();
+  }
+
   private advanceTurn() {
     const order = this.state.players.map((p) => p.color);
     const idx = Math.max(0, order.indexOf(this.state.currentColor));
     let next = this.state.currentColor;
-    for (let i = 1; i <= order.length; i++) {
-      const cand = order[(idx + i) % order.length];
-      if (
-        !this.state.ranking.includes(cand) &&
-        countFinishedLocal(this.state, cand) < tokensToWin(this.state.mode)
-      ) {
-        next = cand;
-        break;
+    if (this.state.mode === 'arena') {
+      next = order[(idx + 1) % order.length]!;
+    } else {
+      for (let i = 1; i <= order.length; i++) {
+        const cand = order[(idx + i) % order.length]!;
+        if (
+          !this.state.ranking.includes(cand) &&
+          countFinishedLocal(this.state, cand) < tokensToWin(this.state.mode)
+        ) {
+          next = cand;
+          break;
+        }
       }
     }
     this.state.currentColor = next;

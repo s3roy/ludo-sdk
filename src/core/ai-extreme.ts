@@ -12,25 +12,43 @@ const WIN = 50_000;
 const DEPTH_2P = 3;
 const DEPTH_MULTI = 2;
 
+export type ExtremeOptions = {
+  /** Search depth (roll/move plies). Default 3 (2p) / 2 (3–4p). */
+  depth?: number;
+  /** Max candidate moves to expand. Default 8. */
+  maxBranch?: number;
+};
+
 /** Local hard-ish pick — avoids circular import with `ai.ts`. */
 function hardishPick(moves: LegalMove[], state: GameState): LegalMove {
   const finish = moves.filter((m) => m.finishes);
   if (finish.length) return finish[0];
   const caps = moves.filter((m) => m.captures);
   if (caps.length) return caps[0];
-  return rankByQuick(moves, state)[0];
+  // Prefer escaping imminent kill over random progress
+  const escapes = moves.filter((m) => {
+    if (m.from.kind !== 'track' || isSafeSquare(m.from.index)) return false;
+    return attackersBehind(state, state.currentColor, m.from.index).some(
+      (d) => d <= 3,
+    );
+  });
+  if (escapes.length) return rankByQuick(escapes, state)[0]!;
+  return rankByQuick(moves, state)[0]!;
 }
 
 export function chooseExtremeMove(
   moves: LegalMove[],
   state: GameState,
   rng: () => number = Math.random,
+  options: ExtremeOptions = {},
 ): LegalMove {
   if (moves.length === 1) return moves[0];
 
   const root = state.currentColor;
   const seats = state.players.length;
-  const depth = seats <= 2 ? DEPTH_2P : DEPTH_MULTI;
+  const depth =
+    options.depth ?? (seats <= 2 ? DEPTH_2P : DEPTH_MULTI);
+  const maxBranch = options.maxBranch ?? 8;
 
   // Always keep tactical slam-dunks (finish / capture) in the candidate set,
   // plus a hard-ish seed, then search the union.
@@ -40,8 +58,8 @@ export function chooseExtremeMove(
 
   // Cap branching for 4p boards
   const pool =
-    candidates.length > 8
-      ? rankByQuick(candidates, state).slice(0, 8)
+    candidates.length > maxBranch
+      ? rankByQuick(candidates, state).slice(0, maxBranch)
       : candidates;
 
   let best = pool[0];
@@ -83,11 +101,44 @@ function rankByQuick(moves: LegalMove[], state: GameState): LegalMove[] {
 }
 
 function quickMoveScore(m: LegalMove, state: GameState): number {
+  const color = state.currentColor;
   let s = 0;
   if (m.finishes) s += 1000;
   if (m.captures) s += 800;
-  if (m.entersBoard) s += 40;
-  s += progressScore(state.currentColor, m.to) * 2;
+
+  const active = state.tokens.filter(
+    (t) =>
+      t.color === color &&
+      t.state.kind !== 'yard' &&
+      t.state.kind !== 'finished',
+  ).length;
+  const need = tokensToWin(state.mode);
+
+  if (m.entersBoard) {
+    // Opening the first runner is good; opening extras past win-need is dumb
+    if (active === 0) s += 55;
+    else if (active >= need) s -= 40;
+    else s += 8;
+  }
+
+  // Prefer entering / advancing home stretch
+  if (m.to.kind === 'homeColumn' || m.from.kind === 'homeColumn') {
+    s += 90 + (m.to.kind === 'homeColumn' ? m.to.index * 12 : 0);
+  }
+
+  // Dump moves: land in 1–3 kill range without capturing
+  if (
+    m.to.kind === 'track' &&
+    !isSafeSquare(m.to.index) &&
+    !m.captures &&
+    !m.finishes
+  ) {
+    const atk = attackersBehind(state, color, m.to.index);
+    for (const d of atk) s -= d <= 3 ? 70 : 25;
+  }
+
+  s += progressScore(color, m.to) * 2.4;
+  s -= progressScore(color, m.from) * 0.4;
   return s;
 }
 

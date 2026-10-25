@@ -9,8 +9,9 @@ export type AiDifficulty = 'easy' | 'normal' | 'hard' | 'extreme';
 /**
  * Pick a legal move for an AI seat.
  * - easy: random
- * - normal / hard: tiered greedy heuristics
- * - extreme: expectiminimax (dice + replies) — slowest, strongest
+ * - normal: tiered greedy heuristics
+ * - hard: shallow expectiminimax (fixes “dump” greedy blunders)
+ * - extreme: deeper expectiminimax — strongest
  */
 export function chooseAiMove(
   moves: LegalMove[],
@@ -28,19 +29,28 @@ export function chooseAiMove(
     return chooseExtremeMove(moves, state, rng);
   }
 
-  const pool = hardPool(moves, state, difficulty);
+  if (difficulty === 'hard') {
+    // Shallow search — still greedy-seeded, but won’t walk into 1–3 kills
+    // or open a 4th pin when a race move exists.
+    return chooseExtremeMove(moves, state, rng, {
+      depth: state.players.length <= 2 ? 2 : 1,
+      maxBranch: 6,
+    });
+  }
+
+  const pool = hardPool(moves, state);
   const scored = pool
     .map((m) => ({ move: m, score: scoreWithinTier(m, state) }))
     .sort((a, b) => b.score - a.score);
 
-  const best = scored[0].score;
-  const slack = difficulty === 'hard' ? 0.01 : 6;
+  const best = scored[0]!.score;
+  const slack = 6;
   const ties = scored.filter((s) => s.score >= best - slack);
 
-  if (difficulty === 'normal' && rng() < 0.12 && scored.length > 1) {
-    return scored[1].move;
+  if (rng() < 0.12 && scored.length > 1) {
+    return scored[1]!.move;
   }
-  return ties[Math.floor(rng() * ties.length)].move;
+  return ties[Math.floor(rng() * ties.length)]!.move;
 }
 
 /**
@@ -52,11 +62,7 @@ export function chooseAiMove(
  * 5 Move onto safe / form block (when available among remaining)
  * 6 Everything else
  */
-function hardPool(
-  moves: LegalMove[],
-  state: GameState,
-  difficulty: AiDifficulty,
-): LegalMove[] {
+function hardPool(moves: LegalMove[], state: GameState): LegalMove[] {
   const finish = moves.filter((m) => m.finishes);
   if (finish.length) return finish;
 
@@ -71,11 +77,15 @@ function hardPool(
       m.to.kind === 'homeColumn' ||
       (m.from.kind === 'homeColumn' && m.to.kind !== 'yard'),
   );
-  if (intoHome.length) return intoHome;
+  if (intoHome.length) {
+    // Prefer entering from the track over shuffling an already-safe home pin
+    const entering = intoHome.filter((m) => m.from.kind === 'track');
+    return entering.length ? entering : intoHome;
+  }
 
-  // On hard/extreme seed: if we already have pieces in play, don't open just to open
+  // If we already have pieces in play, don't open just to open
   // unless every on-board move is suicidal.
-  if (difficulty === 'hard' || difficulty === 'extreme') {
+  {
     const onBoardMoves = moves.filter((m) => !m.entersBoard);
     if (onBoardMoves.length) {
       const safeish = onBoardMoves.filter((m) => !isSuicidal(m, state));
@@ -172,25 +182,28 @@ function scoreWithinTier(move: LegalMove, state: GameState): number {
         t.state.kind !== 'yard' &&
         t.state.kind !== 'finished',
     ).length;
-    score += active === 0 ? 70 : 15; // opening extras is low value
+    const need = tokensToWin(state.mode);
+    if (active === 0) score += 70;
+    else if (active >= need) score -= 50; // rush/blitz: extra open is dump
+    else score += 10;
   }
 
   score +=
-    (progressScore(color, move.to) - progressScore(color, move.from)) * 3;
+    (progressScore(color, move.to) - progressScore(color, move.from)) * 3.5;
 
   if (move.to.kind === 'homeColumn') {
-    score += 40 + move.to.index * 10;
+    score += 55 + move.to.index * 14;
   }
 
   if (move.to.kind === 'track') {
-    if (isSafeSquare(move.to.index)) score += 25;
+    if (isSafeSquare(move.to.index)) score += 30;
     else {
       const atk = attackersBehind(state, color, move.to.index, move.tokenId);
       for (const d of atk) {
-        score -= d <= 3 ? 45 : 20;
+        score -= d <= 3 ? 75 : 28;
       }
     }
-    if (formsBlock(move, state)) score += 50;
+    if (formsBlock(move, state)) score += 55;
   } else {
     score += 20;
   }
@@ -203,19 +216,21 @@ function scoreWithinTier(move: LegalMove, state: GameState): number {
     !isSafeSquare(move.to.index) &&
     !move.captures
   ) {
-    score -= 30;
+    score -= 55;
   }
 
-  // Advance the race leader slightly
+  // Advance the race leader — dump trailing tokens less
   const tok = state.tokens.find((t) => t.id === move.tokenId);
   if (tok && tok.state.kind === 'track') {
     const lead = furthestProgress(state, color);
-    if (progressScore(color, tok.state) >= lead - 1) score += 6;
+    const prog = progressScore(color, tok.state);
+    if (prog >= lead - 1) score += 14;
+    else if (lead - prog >= 12) score -= 8;
   }
 
   // One-ply: after this move, can any opponent capture us with dice 1–6?
   if (move.to.kind === 'track' && !isSafeSquare(move.to.index) && !move.captures) {
-    score -= opponentCanKillAfter(state, color, move) * 35;
+    score -= opponentCanKillAfter(state, color, move) * 55;
   }
 
   return score;

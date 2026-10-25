@@ -1,8 +1,11 @@
 /** Player seat / color order: Red → Green → Yellow → Blue (clockwise). */
 export type ColorId = 0 | 1 | 2 | 3;
 
-/** classic = open on 6 / win 4 · rush = open on 6 / win 2 · blitz = open on 6 / win 1 */
-export type GameMode = 'classic' | 'rush' | 'blitz';
+/**
+ * classic = open on 6 / win 4 · rush = win 2 · blitz = win 1
+ * arena = timed match · points for moves/captures/finishes · highest score wins
+ */
+export type GameMode = 'classic' | 'rush' | 'blitz' | 'arena';
 
 export type PlayerKind = 'human' | 'ai';
 
@@ -68,6 +71,16 @@ export type GameEvent =
   | { type: 'turn'; color: ColorId }
   | { type: 'win'; color: ColorId; ranking: ColorId[] }
   | { type: 'no_moves'; color: ColorId }
+  /** Arena: points awarded after a move. */
+  | {
+      type: 'score';
+      color: ColorId;
+      delta: number;
+      total: number;
+      reasons: Array<'move' | 'open' | 'capture' | 'finish'>;
+    }
+  /** Arena: match clock hit zero. */
+  | { type: 'match_over'; ranking: ColorId[] }
   /** Seat ran out of time (forfeit / miss). */
   | {
       type: 'timeout';
@@ -93,6 +106,12 @@ export type GameState = {
   winner: ColorId | null;
   lastEvent: GameEvent | null;
   turnId: number;
+  /** Arena: running score per color (0 for non-arena). */
+  scores: Record<ColorId, number>;
+  /** Arena: match length in ms (`null` if not arena). */
+  matchDurationMs: number | null;
+  /** Arena: epoch ms when the match ends (`null` if not arena). */
+  matchEndsAt: number | null;
 };
 
 export type EngineOptions = {
@@ -100,4 +119,8 @@ export type EngineOptions = {
   players: PlayerConfig[];
   /** Optional seeded RNG for tests / replays. */
   rng?: () => number;
+  /** Arena only — total match time (default 3 minutes). */
+  matchDurationMs?: number;
+  /** Injectable clock (tests). */
+  now?: () => number;
 };
