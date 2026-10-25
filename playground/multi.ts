@@ -73,6 +73,7 @@ let myColor: ColorId | null = null;
 let roomId: string | null = null;
 let seats: PlayerConfig[] = [];
 let status: string = 'lobby';
+let tableMode: GameMode = 'rush';
 let handle: HostedHandle | null = null;
 let toastTimer = 0;
 
@@ -140,9 +141,21 @@ function mountGame() {
     roomId,
     myColor,
     seats,
+    mode: tableMode,
+    matchDurationMs: tableMode === 'arena' ? 180_000 : undefined,
     theme: 'king',
     compact: true,
+    fill: true,
     sound: true,
+    // Match multiplayer-server turnDurationMs — ring on every seat's turn
+    turnTimer: {
+      enabled: true,
+      durationMs: 15_000,
+      appliesTo: 'all',
+      showRing: true,
+      onTimeout: 'none',
+      pauseWhileBusy: true,
+    },
     transport: {
       send: (action) => {
         send({ type: 'action', action });
@@ -237,10 +250,11 @@ const autoPlaySel = document.querySelector<HTMLSelectElement>('#autoPlay')!;
 const onLeaveSel = document.querySelector<HTMLSelectElement>('#onLeave')!;
 
 createBtn.addEventListener('click', () => {
+  tableMode = modeSel.value as GameMode;
   send({
     type: 'create',
     name: nameInput.value.trim() || 'Player',
-    mode: modeSel.value as GameMode,
+    mode: tableMode,
     maxPlayers: Number(maxSel.value) as 2 | 3 | 4,
     fillAi: false,
     autoPlay: autoPlaySel.value,

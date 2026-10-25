@@ -77,7 +77,18 @@ export function mountHostedLudo(
     fill: options.fill,
     matchDurationMs: options.matchDurationMs,
     sound: options.sound,
-    turnTimer: options.turnTimer ?? false,
+    // Decorative per-turn ring for every seat (server still enforces timeout)
+    turnTimer:
+      options.turnTimer === false
+        ? false
+        : options.turnTimer ?? {
+            enabled: true,
+            durationMs: 15_000,
+            appliesTo: 'all',
+            showRing: true,
+            onTimeout: 'none',
+            pauseWhileBusy: true,
+          },
     absentSeat: { action: 'none' },
     onWin: options.onWin,
     onDestroy: options.onDestroy,

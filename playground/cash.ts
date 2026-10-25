@@ -192,6 +192,15 @@ function mountGame() {
     compact: true,
     fill: true,
     sound: true,
+    // Match cash-server turnDurationMs — ring on every player's turn
+    turnTimer: {
+      enabled: true,
+      durationMs: 60_000,
+      appliesTo: 'all',
+      showRing: true,
+      onTimeout: 'none',
+      pauseWhileBusy: true,
+    },
     transport: {
       send: (action) => send({ type: 'action', action }),
       subscribe: subscribeLudo,
