@@ -357,24 +357,17 @@ console.log(
 
 console.log('\n═══ RANKING ═══');
 console.log(`
-Tier ladder (this SDK):
+Tier ladder (this SDK) — rules unchanged at every level:
 
-  HARD   ★★★★☆  (~${100 - eh.aRate}% win vs easy, ~${nh.bRate}% vs normal)
-         Strict tiers: finish → capture → escape → home → safe/block → rest.
-         Won't open extras while racing. Avoids 1–3-range landings.
-         One-ply threat penalty. No search / no dice expectation.
+  EXTREME ★★★★★  deeper expectiminimax (depth 3–4) inside finish→capture tiers
+  HARD    ★★★★☆  (~${100 - eh.aRate}% win vs easy, ~${nh.bRate}% vs normal)
+                  shallow search (depth 1–2) + same tiers
+  NORMAL  ★★★☆☆  (~${100 - en.aRate}% win vs easy)
+                  greedy tiers + slack / occasional second-best
+  EASY    ★☆☆☆☆  random legal move
 
-  NORMAL ★★★☆☆  (~${100 - en.aRate}% win vs easy)
-         Same pool as hard-ish scoring, ±6 score slack + 12% second-best miss.
-         Softer than hard; still captures/finishes most of the time.
-
-  EASY   ★☆☆☆☆  (random legal move)
-         No strategy — only useful as a punching bag / tutorial seat.
-
-Ceiling note: this is a strong *greedy heuristic*, not game-theory / expectiminimax.
-Gaps vs a deep AI: no multi-ply dice trees, weak "develop vs finish" balance midgame,
-no block-breaking plans, ignores opponent home races beyond one-ply kill count.
+Shared tiers: finish → capture → escape → home → safe/block → rest.
+Docs: DOCS.md § AI difficulty · RULES.md for modes.
 `);
 
-console.log('Verdict for ship: Hard is good enough for casual mobile Ludo;');
-console.log('feels intentional (captures, escapes, finishes). Not tournament-strong.');
+console.log('Ship default: extreme (cash) / hard (casual offline).');

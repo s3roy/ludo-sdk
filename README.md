@@ -42,7 +42,16 @@ mountLudoRoom('#board', offlineRoom({ mode: 'rush', players: 4, aiDifficulty: 'h
 
 **Arena points:** +1 move · +2 open from yard · +10 capture · +25 finish (stack on the same play).
 
-Full rules: [RULES.md](./RULES.md). Architecture: [ARCHITECTURE.md](./ARCHITECTURE.md).
+### AI difficulty (does **not** change rules)
+
+| Level | Behavior |
+|-------|----------|
+| `easy` | Random legal move |
+| `normal` | Greedy tiers (finish → capture → …) + small mistakes |
+| `hard` | Same tiers + shallow search |
+| `extreme` | Same tiers + deeper search (**strongest**) |
+
+Full rules: [RULES.md](./RULES.md) · AI detail: [DOCS.md § AI](./DOCS.md#ai-difficulty) · Architecture: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Architecture (short)
 

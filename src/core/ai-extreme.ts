@@ -9,13 +9,14 @@ import { progressScore } from './path';
 import type { ColorId, GameState, LegalMove } from './types';
 
 const WIN = 50_000;
-const DEPTH_2P = 3;
-const DEPTH_MULTI = 2;
+/** Deeper than hard — extreme should win most head-to-heads. */
+const DEPTH_2P = 4;
+const DEPTH_MULTI = 3;
 
 export type ExtremeOptions = {
-  /** Search depth (roll/move plies). Default 3 (2p) / 2 (3–4p). */
+  /** Search depth (roll/move plies). Default 4 (2p) / 3 (3–4p). */
   depth?: number;
-  /** Max candidate moves to expand. Default 8. */
+  /** Max candidate moves to expand. Default 10. */
   maxBranch?: number;
 };
 
@@ -44,19 +45,34 @@ export function chooseExtremeMove(
 ): LegalMove {
   if (moves.length === 1) return moves[0];
 
+  // Hard tiers at the root — search must NEVER skip a finish or eat
+  // for a “safer” advance (that was the yellow-won’t-capture bug).
+  const finishes = moves.filter((m) => m.finishes);
+  const captures = moves.filter((m) => m.captures);
+  let scoped = finishes.length
+    ? finishes
+    : captures.length
+      ? captures
+      : moves;
+
+  // Among non-tactical moves, drop obvious 1–3 dump landings when an
+  // alternative exists (escape / safe / progress without suicide).
+  if (!finishes.length && !captures.length && scoped.length > 1) {
+    const safeish = scoped.filter((m) => !isDumpLanding(m, state));
+    if (safeish.length) scoped = safeish;
+  }
+
+  if (scoped.length === 1) return scoped[0]!;
+
   const root = state.currentColor;
   const seats = state.players.length;
   const depth =
     options.depth ?? (seats <= 2 ? DEPTH_2P : DEPTH_MULTI);
-  const maxBranch = options.maxBranch ?? 8;
+  const maxBranch = options.maxBranch ?? 10;
 
-  // Always keep tactical slam-dunks (finish / capture) in the candidate set,
-  // plus a hard-ish seed, then search the union.
-  const hardPick = hardishPick(moves, state);
-  const tactical = moves.filter((m) => m.finishes || m.captures);
-  const candidates = uniqueMoves([hardPick, ...tactical, ...moves]);
+  const hardPick = hardishPick(scoped, state);
+  const candidates = uniqueMoves([hardPick, ...scoped]);
 
-  // Cap branching for 4p boards
   const pool =
     candidates.length > maxBranch
       ? rankByQuick(candidates, state).slice(0, maxBranch)
@@ -68,7 +84,9 @@ export function chooseExtremeMove(
 
   for (const m of pool) {
     const next = applyMove(state, m);
-    const score = expectimax(next, depth - 1, root);
+    // Immediate tactical bonus so short-depth search doesn’t undervalue eats
+    const tacticalBonus = m.finishes ? 2_500 : m.captures ? 1_800 : 0;
+    const score = expectimax(next, depth - 1, root) + tacticalBonus;
     if (score > bestScore + 0.01) {
       bestScore = score;
       best = m;
@@ -80,6 +98,15 @@ export function chooseExtremeMove(
   }
 
   return ties[Math.floor(rng() * ties.length)] ?? best;
+}
+
+/** Land on unsafe track in 1–3 of an enemy without capturing. */
+function isDumpLanding(m: LegalMove, state: GameState): boolean {
+  if (m.captures || m.finishes || m.entersBoard) return false;
+  if (m.to.kind !== 'track' || isSafeSquare(m.to.index)) return false;
+  return attackersBehind(state, state.currentColor, m.to.index).some(
+    (d) => d <= 3,
+  );
 }
 
 function uniqueMoves(list: LegalMove[]): LegalMove[] {
@@ -103,8 +130,12 @@ function rankByQuick(moves: LegalMove[], state: GameState): LegalMove[] {
 function quickMoveScore(m: LegalMove, state: GameState): number {
   const color = state.currentColor;
   let s = 0;
-  if (m.finishes) s += 1000;
-  if (m.captures) s += 800;
+  if (m.finishes) s += 2000;
+  if (m.captures) {
+    // Eating is almost always correct (extra turn + send them home)
+    const victim = state.tokens.find((t) => t.id === m.captures);
+    s += 1600 + (victim ? progressScore(victim.color, victim.state) : 40);
+  }
 
   const active = state.tokens.filter(
     (t) =>
@@ -113,17 +144,27 @@ function quickMoveScore(m: LegalMove, state: GameState): number {
       t.state.kind !== 'finished',
   ).length;
   const need = tokensToWin(state.mode);
+  const finiteNeed = Number.isFinite(need) ? need : 4;
 
   if (m.entersBoard) {
     // Opening the first runner is good; opening extras past win-need is dumb
     if (active === 0) s += 55;
-    else if (active >= need) s -= 40;
+    else if (active >= finiteNeed) s -= 40;
     else s += 8;
   }
 
   // Prefer entering / advancing home stretch
   if (m.to.kind === 'homeColumn' || m.from.kind === 'homeColumn') {
     s += 90 + (m.to.kind === 'homeColumn' ? m.to.index * 12 : 0);
+  }
+
+  // Escape imminent kill
+  if (
+    m.from.kind === 'track' &&
+    !isSafeSquare(m.from.index) &&
+    attackersBehind(state, color, m.from.index).some((d) => d <= 3)
+  ) {
+    s += 120;
   }
 
   // Dump moves: land in 1–3 kill range without capturing
@@ -134,7 +175,7 @@ function quickMoveScore(m: LegalMove, state: GameState): number {
     !m.finishes
   ) {
     const atk = attackersBehind(state, color, m.to.index);
-    for (const d of atk) s -= d <= 3 ? 70 : 25;
+    for (const d of atk) s -= d <= 3 ? 110 : 35;
   }
 
   s += progressScore(color, m.to) * 2.4;
@@ -229,11 +270,21 @@ export function evaluate(state: GameState, root: ColorId): number {
 
   // Race pressure: punish opponents closer to win
   const need = tokensToWin(state.mode);
-  for (const p of state.players) {
-    const fin = countFinished(state, p.color);
-    const near = fin / need;
-    if (p.color === root) score += near * 400;
-    else score -= near * 380;
+  if (Number.isFinite(need) && need > 0) {
+    for (const p of state.players) {
+      const fin = countFinished(state, p.color);
+      const near = fin / need;
+      if (p.color === root) score += near * 400;
+      else score -= near * 380;
+    }
+  }
+
+  // Arena: points on the board are the win condition
+  if (state.mode === 'arena' && state.scores) {
+    score += (state.scores[root] ?? 0) * 35;
+    for (const p of others) {
+      score -= ((state.scores[p.color] ?? 0) * 30) / Math.max(1, others.length);
+    }
   }
 
   return score;

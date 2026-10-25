@@ -31,13 +31,46 @@ import '@ludorush/sdk/style.css'
 
 ## Game modes
 
-| Mode | Leave yard | Tokens to win |
-|------|------------|---------------|
-| `classic` | Roll 6 | 4 |
-| `rush` | Roll 6 | 2 |
-| `blitz` | Roll 6 | 1 |
+Same shared engine rules (open on 6, safes, blocks, captures, extra rolls). Only the **win condition** changes:
 
-Rules detail: [`RULES.md`](./RULES.md).
+| Mode | Leave yard | Win condition |
+|------|------------|---------------|
+| `classic` | Roll **6** | Finish **4** tokens |
+| `rush` | Roll **6** | Finish **2** tokens |
+| `blitz` | Roll **6** | Finish **1** token |
+| `arena` | Roll **6** | **3 min** · highest **score** wins |
+
+Arena points: **+1** move · **+2** open · **+10** capture · **+25** finish (stack on one play).
+
+Full shared rules: [`RULES.md`](./RULES.md).
+
+## AI difficulty
+
+AI never changes legality or win rules. It only chooses among `listLegalMoves()`.
+
+| Level | How it picks | Feel |
+|-------|----------------|------|
+| **`easy`** | Uniform **random** legal move | Blunders often; tutorial / punching bag |
+| **`normal`** | **Greedy tiers** (below) + score slack ±6 + ~12% second-best slip | Solid casual bot; sometimes misses the best eat/escape |
+| **`hard`** | Same **tiers**, then **shallow** expectiminimax (depth ~1–2, branch ≤6) | Strong mobile opponent; rarely skips finish/capture |
+| **`extreme`** | Same **tiers**, then **deeper** expectiminimax (depth ~3–4, branch ≤10) + Arena score awareness | Strongest ship default (cash demo uses this) |
+
+### Shared tactical tiers (normal / hard / extreme)
+
+Higher tier **always** beats lower — search only ranks moves **inside** the top tier:
+
+1. **Finish** a token (and win if that completes the mode)
+2. **Capture** (eat) when legal — never skipped for a “safer” advance
+3. **Escape** a piece under 1–3 attack (normal greedy path)
+4. Enter / advance **home column**
+5. Land **safe** or form a **block**
+6. Everything else (avoid 1–3 dump landings when another move exists)
+
+```ts
+offlineRoom({ aiDifficulty: 'extreme' })
+// lobby / cash host:
+createLudoLobby({ … }) // per-room aiDifficulty on createRoom / createMatch
+```
 
 ## Offline / bots (no server)
 

@@ -8,10 +8,13 @@ export type AiDifficulty = 'easy' | 'normal' | 'hard' | 'extreme';
 
 /**
  * Pick a legal move for an AI seat.
- * - easy: random
- * - normal: tiered greedy heuristics
- * - hard: shallow expectiminimax (fixes “dump” greedy blunders)
- * - extreme: deeper expectiminimax — strongest
+ * Engine rules are identical at every difficulty — only the picker changes.
+ * See DOCS.md § AI difficulty.
+ *
+ * - easy: uniform random legal move
+ * - normal: greedy tiers (finish → capture → …) + small noise
+ * - hard: same tiers + shallow expectiminimax
+ * - extreme: same tiers + deeper expectiminimax (strongest)
  */
 export function chooseAiMove(
   moves: LegalMove[],
@@ -30,13 +33,14 @@ export function chooseAiMove(
   }
 
   if (difficulty === 'hard') {
-    // Shallow search — still greedy-seeded, but won’t walk into 1–3 kills
-    // or open a 4th pin when a race move exists.
+    // Shallow search inside hard tactical tiers (finish → capture → rest).
     return chooseExtremeMove(moves, state, rng, {
       depth: state.players.length <= 2 ? 2 : 1,
       maxBranch: 6,
     });
   }
+
+  // normal: strict greedy tiers (never skip an eat)
 
   const pool = hardPool(moves, state);
   const scored = pool
