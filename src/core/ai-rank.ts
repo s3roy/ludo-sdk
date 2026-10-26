@@ -237,6 +237,35 @@ runProbe(
   (pick) => !!pick.entersBoard,
 );
 
+// 4b Gut feel: on 6, run the pin in pure danger — do not open a new one
+runProbe(
+  'six: run pure-danger pin, do not open',
+  'hard',
+  (s) =>
+    setBoard(s, 0, 6, {
+      'red-0': { kind: 'track', index: 10 },
+      'green-0': { kind: 'track', index: 8 }, // 2 behind → pure danger
+      'red-1': { kind: 'yard' },
+      'red-2': { kind: 'yard' },
+      'red-3': { kind: 'yard' },
+    }),
+  (pick) => pick.tokenId === 'red-0' && !pick.entersBoard,
+);
+
+runProbe(
+  'extreme six: run pure-danger pin, do not open',
+  'extreme',
+  (s) =>
+    setBoard(s, 0, 6, {
+      'red-0': { kind: 'track', index: 10 },
+      'green-0': { kind: 'track', index: 8 },
+      'red-1': { kind: 'yard' },
+      'red-2': { kind: 'yard' },
+      'red-3': { kind: 'yard' },
+    }),
+  (pick) => pick.tokenId === 'red-0' && !pick.entersBoard,
+);
+
 // 5 Don't open when already racing (hard)
 runProbe(
   'hard: advance on-board, do not open',

@@ -90,7 +90,7 @@ Higher tier **always** beats lower — search only ranks moves **inside** the to
 
 1. **Finish** a token (and win if that completes the mode)
 2. **Capture** (eat) when legal — never skipped for a “safer” advance
-3. **Escape** a piece under 1–3 attack (normal greedy path)
+3. **Escape / run** a pin in the kill window (1–6 behind, esp. 1–3) — **never open a new pin on 6 instead**
 4. Enter / advance **home column**
 5. Land **safe** or form a **block**
 6. Everything else (avoid 1–3 dump landings when another move exists)

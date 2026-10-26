@@ -1,8 +1,17 @@
-import { isSafeSquare, TRACK_LEN, tokensToWin } from './constants';
+import { isSafeSquare, tokensToWin } from './constants';
 import { countFinished } from './moves';
 import { progressScore } from './path';
 import type { ColorId, GameState, LegalMove, Token } from './types';
 import { chooseExtremeMove } from './ai-extreme';
+import {
+  attackersBehind,
+  formsBlock,
+  gutFeelBonus,
+  isDumpLanding,
+  isEscapeMove,
+  landsSafe,
+  tacticalPool,
+} from './ai-tactics';
 
 export type AiDifficulty = 'easy' | 'normal' | 'hard' | 'extreme';
 
@@ -12,7 +21,7 @@ export type AiDifficulty = 'easy' | 'normal' | 'hard' | 'extreme';
  * See DOCS.md § AI difficulty.
  *
  * - easy: uniform random legal move
- * - normal: greedy tiers (finish → capture → …) + small noise
+ * - normal: greedy tiers (finish → capture → escape → …) + small noise
  * - hard: same tiers + shallow expectiminimax
  * - extreme: same tiers + deeper expectiminimax (strongest)
  */
@@ -33,16 +42,16 @@ export function chooseAiMove(
   }
 
   if (difficulty === 'hard') {
-    // Shallow search inside hard tactical tiers (finish → capture → rest).
+    // Shallow search inside hard tactical tiers (finish → capture → escape → rest).
     return chooseExtremeMove(moves, state, rng, {
       depth: state.players.length <= 2 ? 2 : 1,
       maxBranch: 6,
     });
   }
 
-  // normal: strict greedy tiers (never skip an eat)
+  // normal: strict greedy tiers (never skip an eat / escape for an open)
 
-  const pool = hardPool(moves, state);
+  const pool = tacticalPool(moves, state);
   const scored = pool
     .map((m) => ({ move: m, score: scoreWithinTier(m, state) }))
     .sort((a, b) => b.score - a.score);
@@ -57,113 +66,9 @@ export function chooseAiMove(
   return ties[Math.floor(rng() * ties.length)]!.move;
 }
 
-/**
- * Tiered candidate filter — higher tiers completely outrank lower ones.
- * 1 Finish / win
- * 2 Capture
- * 3 Escape a piece under attack (1–6 behind, not on safe)
- * 4 Enter home stretch
- * 5 Move onto safe / form block (when available among remaining)
- * 6 Everything else
- */
-function hardPool(moves: LegalMove[], state: GameState): LegalMove[] {
-  const finish = moves.filter((m) => m.finishes);
-  if (finish.length) return finish;
-
-  const caps = moves.filter((m) => m.captures);
-  if (caps.length) return caps;
-
-  const escapes = moves.filter((m) => isEscapeMove(m, state));
-  if (escapes.length) return escapes;
-
-  const intoHome = moves.filter(
-    (m) =>
-      m.to.kind === 'homeColumn' ||
-      (m.from.kind === 'homeColumn' && m.to.kind !== 'yard'),
-  );
-  if (intoHome.length) {
-    // Prefer entering from the track over shuffling an already-safe home pin
-    const entering = intoHome.filter((m) => m.from.kind === 'track');
-    return entering.length ? entering : intoHome;
-  }
-
-  // If we already have pieces in play, don't open just to open
-  // unless every on-board move is suicidal.
-  {
-    const onBoardMoves = moves.filter((m) => !m.entersBoard);
-    if (onBoardMoves.length) {
-      const safeish = onBoardMoves.filter((m) => !isSuicidal(m, state));
-      if (safeish.length) {
-        const preferSafe = safeish.filter(
-          (m) => landsSafe(m) || formsBlock(m, state),
-        );
-        return preferSafe.length ? preferSafe : safeish;
-      }
-      // all on-board moves suicidal — allow open as bailout
-      const opens = moves.filter((m) => m.entersBoard);
-      if (opens.length) return opens;
-      return onBoardMoves;
-    }
-  }
-
-  // Prefer safe landings / opens when still choosing freely
-  const safeLand = moves.filter(
-    (m) => m.entersBoard || landsSafe(m) || formsBlock(m, state),
-  );
-  if (safeLand.length) return safeLand;
-
-  return moves;
-}
-
-function landsSafe(m: LegalMove): boolean {
-  if (m.to.kind !== 'track') return true;
-  return isSafeSquare(m.to.index);
-}
-
-function formsBlock(m: LegalMove, state: GameState): boolean {
-  if (m.to.kind !== 'track') return false;
-  return (
-    ownCountOn(state, state.currentColor, m.to.index, m.tokenId) >= 1
-  );
-}
-
-/** True if this move leaves a square that opponents can hit this turn. */
-function isEscapeMove(m: LegalMove, state: GameState): boolean {
-  if (m.from.kind !== 'track') return false;
-  if (isSafeSquare(m.from.index)) return false;
-  const danger = attackersBehind(state, state.currentColor, m.from.index);
-  if (!danger.length) return false;
-  // Must actually leave that square (always true for a move) and not land
-  // into equal/worse danger unless capturing (captures already tier-2).
-  if (m.to.kind === 'track' && !isSafeSquare(m.to.index)) {
-    const after = attackersBehind(
-      state,
-      state.currentColor,
-      m.to.index,
-      m.tokenId,
-    );
-    // Still an escape if we break immediate 1–3 range even if some threat remains
-    const imminent = danger.some((d) => d <= 3);
-    if (imminent && after.every((d) => d > 3)) return true;
-    if (after.length === 0) return true;
-    if (landsSafe(m)) return true;
-    return false;
-  }
-  return true; // home / finish / safe
-}
-
-function isSuicidal(m: LegalMove, state: GameState): boolean {
-  if (m.captures || m.finishes || m.entersBoard) return false;
-  if (m.to.kind !== 'track') return false;
-  if (isSafeSquare(m.to.index)) return false;
-  if (formsBlock(m, state)) return false;
-  const atk = attackersBehind(state, state.currentColor, m.to.index, m.tokenId);
-  return atk.some((d) => d <= 3);
-}
-
 function scoreWithinTier(move: LegalMove, state: GameState): number {
   const color = state.currentColor;
-  let score = 0;
+  let score = gutFeelBonus(move, state);
 
   if (move.finishes) {
     score += 300;
@@ -176,24 +81,6 @@ function scoreWithinTier(move: LegalMove, state: GameState): number {
       200 +
       (victim ? progressScore(victim.color, victim.state) : 30);
   }
-
-  if (isEscapeMove(move, state)) score += 80;
-
-  if (move.entersBoard) {
-    const active = state.tokens.filter(
-      (t) =>
-        t.color === color &&
-        t.state.kind !== 'yard' &&
-        t.state.kind !== 'finished',
-    ).length;
-    const need = tokensToWin(state.mode);
-    if (active === 0) score += 70;
-    else if (active >= need) score -= 50; // rush/blitz: extra open is dump
-    else score += 10;
-  }
-
-  score +=
-    (progressScore(color, move.to) - progressScore(color, move.from)) * 3.5;
 
   if (move.to.kind === 'homeColumn') {
     score += 55 + move.to.index * 14;
@@ -208,7 +95,7 @@ function scoreWithinTier(move: LegalMove, state: GameState): number {
       }
     }
     if (formsBlock(move, state)) score += 55;
-  } else {
+  } else if (!move.entersBoard) {
     score += 20;
   }
 
@@ -237,39 +124,9 @@ function scoreWithinTier(move: LegalMove, state: GameState): number {
     score -= opponentCanKillAfter(state, color, move) * 55;
   }
 
+  if (isDumpLanding(move, state)) score -= 40;
+
   return score;
-}
-
-/** Distances (1–6) of enemy tokens sitting behind `index`. */
-function attackersBehind(
-  state: GameState,
-  self: ColorId,
-  index: number,
-  ignoreId?: string,
-): number[] {
-  const out: number[] = [];
-  for (const t of state.tokens) {
-    if (t.color === self || t.state.kind !== 'track') continue;
-    if (ignoreId && t.id === ignoreId) continue;
-    const dist = (index - t.state.index + TRACK_LEN) % TRACK_LEN;
-    if (dist >= 1 && dist <= 6) out.push(dist);
-  }
-  return out;
-}
-
-function ownCountOn(
-  state: GameState,
-  color: ColorId,
-  index: number,
-  ignoreId: string,
-): number {
-  return state.tokens.filter(
-    (t) =>
-      t.id !== ignoreId &&
-      t.color === color &&
-      t.state.kind === 'track' &&
-      t.state.index === index,
-  ).length;
 }
 
 function furthestProgress(state: GameState, color: ColorId): number {
@@ -281,10 +138,6 @@ function furthestProgress(state: GameState, color: ColorId): number {
   return best;
 }
 
-/**
- * Rough one-ply: count enemy tokens that could land exactly on our
- * destination with some roll 1–6 (we already sit there after the move).
- */
 function opponentCanKillAfter(
   state: GameState,
   self: ColorId,
@@ -385,3 +238,10 @@ export function currentPlayerIsAi(state: GameState): boolean {
 export function findToken(state: GameState, id: string): Token | undefined {
   return state.tokens.find((t) => t.id === id);
 }
+
+// Re-export tactics helpers used by tests / docs examples
+export {
+  isEscapeMove,
+  landsSafe,
+  tacticalPool,
+};

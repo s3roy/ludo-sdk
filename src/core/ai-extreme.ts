@@ -2,11 +2,18 @@
  * Extreme AI — expectiminimax over dice + opponent replies.
  * Much stronger than greedy `hard`; slower (~few ms per move).
  */
-import { isSafeSquare, TRACK_LEN, tokensToWin } from './constants';
+import { isSafeSquare, tokensToWin } from './constants';
 import { createGame } from './game';
 import { countFinished, listLegalMoves } from './moves';
 import { progressScore } from './path';
 import type { ColorId, GameState, LegalMove } from './types';
+import {
+  attackersBehind,
+  gutFeelBonus,
+  isDumpLanding,
+  isEscapeMove,
+  tacticalPool,
+} from './ai-tactics';
 
 const WIN = 50_000;
 /** Deeper than hard — extreme should win most head-to-heads. */
@@ -22,19 +29,8 @@ export type ExtremeOptions = {
 
 /** Local hard-ish pick — avoids circular import with `ai.ts`. */
 function hardishPick(moves: LegalMove[], state: GameState): LegalMove {
-  const finish = moves.filter((m) => m.finishes);
-  if (finish.length) return finish[0];
-  const caps = moves.filter((m) => m.captures);
-  if (caps.length) return caps[0];
-  // Prefer escaping imminent kill over random progress
-  const escapes = moves.filter((m) => {
-    if (m.from.kind !== 'track' || isSafeSquare(m.from.index)) return false;
-    return attackersBehind(state, state.currentColor, m.from.index).some(
-      (d) => d <= 3,
-    );
-  });
-  if (escapes.length) return rankByQuick(escapes, state)[0]!;
-  return rankByQuick(moves, state)[0]!;
+  const pool = tacticalPool(moves, state);
+  return rankByQuick(pool, state)[0]!;
 }
 
 export function chooseExtremeMove(
@@ -45,22 +41,9 @@ export function chooseExtremeMove(
 ): LegalMove {
   if (moves.length === 1) return moves[0];
 
-  // Hard tiers at the root — search must NEVER skip a finish or eat
-  // for a “safer” advance (that was the yellow-won’t-capture bug).
-  const finishes = moves.filter((m) => m.finishes);
-  const captures = moves.filter((m) => m.captures);
-  let scoped = finishes.length
-    ? finishes
-    : captures.length
-      ? captures
-      : moves;
-
-  // Among non-tactical moves, drop obvious 1–3 dump landings when an
-  // alternative exists (escape / safe / progress without suicide).
-  if (!finishes.length && !captures.length && scoped.length > 1) {
-    const safeish = scoped.filter((m) => !isDumpLanding(m, state));
-    if (safeish.length) scoped = safeish;
-  }
+  // Hard tiers at the root — never skip finish / eat / flee-danger for an open.
+  // (Opening on 6 while a pin sits in pure danger was the gut-feel bug.)
+  let scoped = tacticalPool(moves, state);
 
   if (scoped.length === 1) return scoped[0]!;
 
@@ -84,8 +67,12 @@ export function chooseExtremeMove(
 
   for (const m of pool) {
     const next = applyMove(state, m);
-    // Immediate tactical bonus so short-depth search doesn’t undervalue eats
-    const tacticalBonus = m.finishes ? 2_500 : m.captures ? 1_800 : 0;
+    // Immediate tactical bonus so short-depth search doesn’t undervalue eats / saves
+    const tacticalBonus =
+      (m.finishes ? 2_500 : 0) +
+      (m.captures ? 1_800 : 0) +
+      (isEscapeMove(m, state) ? 900 : 0) +
+      (m.entersBoard ? -400 : 0);
     const score = expectimax(next, depth - 1, root) + tacticalBonus;
     if (score > bestScore + 0.01) {
       bestScore = score;
@@ -98,15 +85,6 @@ export function chooseExtremeMove(
   }
 
   return ties[Math.floor(rng() * ties.length)] ?? best;
-}
-
-/** Land on unsafe track in 1–3 of an enemy without capturing. */
-function isDumpLanding(m: LegalMove, state: GameState): boolean {
-  if (m.captures || m.finishes || m.entersBoard) return false;
-  if (m.to.kind !== 'track' || isSafeSquare(m.to.index)) return false;
-  return attackersBehind(state, state.currentColor, m.to.index).some(
-    (d) => d <= 3,
-  );
 }
 
 function uniqueMoves(list: LegalMove[]): LegalMove[] {
@@ -129,7 +107,7 @@ function rankByQuick(moves: LegalMove[], state: GameState): LegalMove[] {
 
 function quickMoveScore(m: LegalMove, state: GameState): number {
   const color = state.currentColor;
-  let s = 0;
+  let s = gutFeelBonus(m, state);
   if (m.finishes) s += 2000;
   if (m.captures) {
     // Eating is almost always correct (extra turn + send them home)
@@ -137,44 +115,21 @@ function quickMoveScore(m: LegalMove, state: GameState): number {
     s += 1600 + (victim ? progressScore(victim.color, victim.state) : 40);
   }
 
-  const active = state.tokens.filter(
-    (t) =>
-      t.color === color &&
-      t.state.kind !== 'yard' &&
-      t.state.kind !== 'finished',
-  ).length;
-  const need = tokensToWin(state.mode);
-  const finiteNeed = Number.isFinite(need) ? need : 4;
-
-  if (m.entersBoard) {
-    // Opening the first runner is good; opening extras past win-need is dumb
-    if (active === 0) s += 55;
-    else if (active >= finiteNeed) s -= 40;
-    else s += 8;
-  }
-
   // Prefer entering / advancing home stretch
   if (m.to.kind === 'homeColumn' || m.from.kind === 'homeColumn') {
     s += 90 + (m.to.kind === 'homeColumn' ? m.to.index * 12 : 0);
   }
 
-  // Escape imminent kill
-  if (
-    m.from.kind === 'track' &&
-    !isSafeSquare(m.from.index) &&
-    attackersBehind(state, color, m.from.index).some((d) => d <= 3)
-  ) {
-    s += 120;
-  }
-
   // Dump moves: land in 1–3 kill range without capturing
-  if (
+  if (isDumpLanding(m, state)) {
+    s -= 110;
+  } else if (
     m.to.kind === 'track' &&
     !isSafeSquare(m.to.index) &&
     !m.captures &&
     !m.finishes
   ) {
-    const atk = attackersBehind(state, color, m.to.index);
+    const atk = attackersBehind(state, color, m.to.index, m.tokenId);
     for (const d of atk) s -= d <= 3 ? 110 : 35;
   }
 
@@ -339,16 +294,3 @@ function seatPower(state: GameState, color: ColorId): number {
   return power;
 }
 
-function attackersBehind(
-  state: GameState,
-  self: ColorId,
-  index: number,
-): number[] {
-  const out: number[] = [];
-  for (const t of state.tokens) {
-    if (t.color === self || t.state.kind !== 'track') continue;
-    const dist = (index - t.state.index + TRACK_LEN) % TRACK_LEN;
-    if (dist >= 1 && dist <= 6) out.push(dist);
-  }
-  return out;
-}
