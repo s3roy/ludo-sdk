@@ -658,7 +658,8 @@ export function mountLudo(
     timerTurnId = null;
     timerColor = null;
     if (clearRing) {
-      setTimerRingProgress(diceWrap, 0, false);
+      // Clears dice dock + King HUD shells / seconds labels
+      paintTimerRing();
     }
   }
 
@@ -839,7 +840,9 @@ export function mountLudo(
   function paintTimerRing() {
     const active =
       !!timerCfg.showRing && !!timerCfg.enabled && !!timerStartedAt;
-    const ratio = active ? timerRemainingMs() / timerDuration : 0;
+    const remaining = active ? timerRemainingMs() : 0;
+    const ratio = active && timerDuration ? remaining / timerDuration : 0;
+    const secsLabel = active ? String(Math.max(0, Math.ceil(remaining / 1000))) : '';
 
     if (theme.id === 'king') {
       // King: ring wraps the outer HUD card — never the die.
@@ -848,11 +851,15 @@ export function mountLudo(
         const shell = root.querySelector<HTMLElement>(
           `[data-ludo-hud="${c}"] .ludo-sdk__hud-shell`,
         );
-        setTimerRingProgress(
-          shell,
-          ratio,
-          active && timerColor === c,
+        const on = active && timerColor === c;
+        setTimerRingProgress(shell, ratio, on);
+        const secs = root.querySelector<HTMLElement>(
+          `[data-ludo-hud="${c}"] [data-ludo-hud-secs]`,
         );
+        if (secs) {
+          secs.textContent = on ? secsLabel : '';
+          secs.hidden = !on;
+        }
       }
       return;
     }
@@ -1779,6 +1786,7 @@ function kingHud(color: ColorId, corner: 'tl' | 'tr' | 'bl' | 'br'): string {
           <span class="ludo-sdk__hud-pin"></span>
         </div>
       </div>
+      <span class="ludo-sdk__hud-secs" data-ludo-hud-secs hidden aria-live="polite"></span>
       ${arrow}
     </div>
   </div>`;

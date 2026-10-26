@@ -1696,7 +1696,7 @@
   overflow: visible;
   display: block;
 }
-/* Outer timer track = permanent gold border (one stroke, always on) */
+/* Outer timer track = permanent gold border when idle */
 .ludo-sdk--theme-king .ludo-sdk__hud-shell .ludo-sdk__timer-track {
   stroke: #e8c84a;
   stroke-width: 3;
@@ -1704,12 +1704,17 @@
   vector-effect: non-scaling-stroke;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud-shell .ludo-sdk__timer-progress {
-  stroke: var(--timer-stroke, #ffc107);
-  stroke-width: 3;
+  stroke: var(--timer-stroke, #0785ff);
+  stroke-width: 3.5;
   stroke-linecap: round;
   opacity: 0;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--timer-stroke, #ffc107) 70%, transparent));
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--timer-stroke, #0785ff) 70%, transparent));
+}
+/* While counting: dim gold track so the blue→red arc reads as a timer */
+.ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__timer-track {
+  stroke: #8a7020;
+  opacity: 0.55;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud-shell--timing .ludo-sdk__timer-progress {
   opacity: 1;
@@ -1720,6 +1725,32 @@
 .ludo-sdk--theme-king .ludo-sdk__hud-shell--critical .ludo-sdk__timer-progress {
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--timer-red) 80%, transparent));
   animation: ludo-timer-pulse 0.55s ease-in-out infinite;
+}
+/* Seconds left — unmistakable vs gold frame alone */
+.ludo-sdk--theme-king .ludo-sdk__hud-secs {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  transform: translateX(-50%);
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #0b1a36;
+  border: 1px solid color-mix(in srgb, var(--timer-stroke, #0785ff) 75%, #fff);
+  color: #fff;
+  font-family: ui-rounded, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  z-index: 7;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.ludo-sdk--theme-king .ludo-sdk__hud--bl .ludo-sdk__hud-secs,
+.ludo-sdk--theme-king .ludo-sdk__hud--br .ludo-sdk__hud-secs {
+  bottom: auto;
+  top: -14px;
 }
 .ludo-sdk--theme-king .ludo-sdk__hud-card {
   display: flex;

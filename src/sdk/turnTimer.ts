@@ -210,14 +210,8 @@ export function setTimerRingProgress(
   wrap?.classList.toggle('ludo-sdk__hud-shell--timing', active && isHud);
   const r = Math.min(1, Math.max(0, ratio));
   const urgency = 1 - r;
-  // King outer HUD uses gold → hot orange; dice dock uses blue → red
-  const stroke = isHud
-    ? r > 0.35
-      ? '#ffc107'
-      : r > 0.15
-        ? '#ff9800'
-        : '#ff5a3c'
-    : timerStrokeForRatio(r);
+  // Bright blue → red countdown (gold track alone looked like "no timer")
+  const stroke = timerStrokeForRatio(r);
   if (wrap) {
     wrap.style.setProperty('--timer-urgency', urgency.toFixed(3));
     // Idle HUD keeps gold so the track reads as a permanent border
