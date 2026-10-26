@@ -1726,32 +1726,6 @@
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--timer-red) 80%, transparent));
   animation: ludo-timer-pulse 0.55s ease-in-out infinite;
 }
-/* Seconds left — unmistakable vs gold frame alone */
-.ludo-sdk--theme-king .ludo-sdk__hud-secs {
-  position: absolute;
-  left: 50%;
-  bottom: -14px;
-  transform: translateX(-50%);
-  min-width: 22px;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: #0b1a36;
-  border: 1px solid color-mix(in srgb, var(--timer-stroke, #0785ff) 75%, #fff);
-  color: #fff;
-  font-family: ui-rounded, system-ui, sans-serif;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 16px;
-  text-align: center;
-  z-index: 7;
-  pointer-events: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-}
-.ludo-sdk--theme-king .ludo-sdk__hud--bl .ludo-sdk__hud-secs,
-.ludo-sdk--theme-king .ludo-sdk__hud--br .ludo-sdk__hud-secs {
-  bottom: auto;
-  top: -14px;
-}
 .ludo-sdk--theme-king .ludo-sdk__hud-card {
   display: flex;
   align-items: stretch;
