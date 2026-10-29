@@ -19,6 +19,8 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:8790', changeOrigin: true },
       '/health': { target: 'http://127.0.0.1:8790', changeOrigin: true },
       '/ws': { target: 'http://127.0.0.1:8790', ws: true, changeOrigin: true },
+      // Free multiplayer lobby (multi.html) — WS on :8787
+      '/mp': { target: 'http://127.0.0.1:8787', ws: true, changeOrigin: true },
     },
   },
   preview: {
@@ -27,6 +29,7 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:8790', changeOrigin: true },
       '/health': { target: 'http://127.0.0.1:8790', changeOrigin: true },
       '/ws': { target: 'http://127.0.0.1:8790', ws: true, changeOrigin: true },
+      '/mp': { target: 'http://127.0.0.1:8787', ws: true, changeOrigin: true },
     },
   },
   build: {

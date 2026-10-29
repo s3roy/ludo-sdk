@@ -161,3 +161,18 @@ Free (no wallet) multi: `npm run multiplayer:server` → http://localhost:5195/m
 
 Client-only. Call `ui.setTheme('neon')` anytime. Board SVG + chrome CSS update together.
 Does not affect rules or fairness.
+
+## Java / Spring
+
+`@ludorush/sdk` is TypeScript — it does **not** run on the JVM.
+
+Recommended pattern (see **`examples/hosted/`**):
+
+1. Run the **Node game sidecar** (`createLudoMatchmaker` / `createLudoLobby`).
+2. Run **Spring** for auth, wallet, and product APIs; HTTP-proxy table admin to Node.
+3. Browser uses **`mountHostedLudo`** and opens the Node **WebSocket** for roll/move intents.
+
+```
+Spring (:8080)  --HTTP-->  Node game (:8787)  <--WS--  Browser UI
+```
+

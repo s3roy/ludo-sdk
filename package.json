@@ -42,6 +42,8 @@
     "multiplayer": "npm run multiplayer:server",
     "cash:server": "npx tsx playground/cash-server.ts",
     "cash": "npm run cash:server",
+    "example:hosted:backend": "npm run start --prefix examples/hosted/backend",
+    "example:hosted:frontend": "npm run dev --prefix examples/hosted/frontend",
     "build": "tsc --noEmit && vite build && vite build --config vite.playground.config.ts",
     "build:sdk": "tsc --noEmit && vite build",
     "build:web": "vite build --config vite.playground.config.ts",

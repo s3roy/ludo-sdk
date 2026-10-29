@@ -13,5 +13,12 @@ coverage/
 # Demo wallet / session store (cash host)
 .data/
 
+# Local tunnel notes
+TUNNEL.md
+
+# Example install trees
+examples/**/node_modules/
+examples/**/target/
+
 # Local design refs — never publish
 design/

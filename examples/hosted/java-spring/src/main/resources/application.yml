@@ -1,0 +1,9 @@
+server:
+  port: 8080
+
+# Node game sidecar (examples/hosted/backend)
+ludo:
+  sidecar:
+    base-url: http://127.0.0.1:8787
+    # Browser should connect here for gameplay WS (not through Spring for v1)
+    ws-url: ws://127.0.0.1:8787

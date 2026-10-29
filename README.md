@@ -155,6 +155,22 @@ const ui = mountHostedLudo('#board', {
 
 See **[DOCS.md](./DOCS.md)** for rooms, timer, host commands.
 
+## Hosted example (backend + frontend + Java)
+
+Full matchmaking stack under **[`examples/hosted/`](./examples/hosted/)**:
+
+| | |
+|--|--|
+| Node game service | `examples/hosted/backend` (`createLudoMatchmaker`) |
+| Vite frontend | `examples/hosted/frontend` (`mountHostedLudo`) |
+| Java Spring shell | `examples/hosted/java-spring` (calls Node sidecar — does **not** embed the engine) |
+
+```bash
+npm run build:sdk
+npm run example:hosted:backend    # :8787
+npm run example:hosted:frontend   # :5200
+```
+
 ## Local playgrounds
 
 ```bash
@@ -183,6 +199,7 @@ Cash demo: register → stake → **Players** (2 / 3 / 4) → vs AI (fills empty
 | Doc | Contents |
 |-----|----------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Host-authoritative flow · cash layers · trust boundary |
+| [examples/hosted/](./examples/hosted/) | Backend + frontend + Java Spring sidecar example |
 | [DOCS.md](./DOCS.md) | Rooms, timer, seat presence, host commands, headless |
 | [RULES.md](./RULES.md) | Engine rules (safe squares, blocks, Arena scoring) |
 | [DESIGN.md](./DESIGN.md) | Colour system & CSS variables |

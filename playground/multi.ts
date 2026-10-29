@@ -83,8 +83,10 @@ function wsUrl(): string {
   const q = new URLSearchParams(location.search).get('ws');
   if (q) return q;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = location.hostname || 'localhost';
-  return `${proto}//${host}:8787`;
+  // Local Vite / Cloudflare tunnel: same-origin proxy → :8787 (see vite.playground.config)
+  // Direct hit on :8787 only when the page itself is served from that port.
+  if (location.port === '8787') return `${proto}//${location.host}`;
+  return `${proto}//${location.host}/mp`;
 }
 
 function setStatus(text: string, kind: '' | 'ok' | 'err' = '') {

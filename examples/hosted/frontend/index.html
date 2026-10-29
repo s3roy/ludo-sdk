@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <meta name="theme-color" content="#0f234e" />
+    <title>Ludo SDK · hosted example</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="top" id="lobbyHeader">
+        <h1>Hosted Ludo example</h1>
+        <p class="sub">
+          Backend = <code>createLudoMatchmaker</code> · Frontend =
+          <code>mountHostedLudo</code>. Open <strong>2 tabs</strong>, seats
+          <strong>2</strong>, empty token → Play.
+        </p>
+      </header>
+
+      <section class="lobby" id="lobby">
+        <div class="grid">
+          <label>
+            Display name
+            <input id="name" type="text" maxlength="24" value="Player1" autocomplete="nickname" />
+          </label>
+          <label>
+            Table token
+            <input
+              id="token"
+              type="text"
+              maxlength="32"
+              value=""
+              placeholder="empty = public · demo = 4-seat"
+            />
+          </label>
+          <label>
+            Seats
+            <select id="seats">
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label>
+            Mode
+            <select id="mode">
+              <option value="rush" selected>Rush</option>
+              <option value="classic">Classic</option>
+              <option value="blitz">Blitz</option>
+            </select>
+          </label>
+          <label>
+            Theme
+            <select id="theme">
+              <option value="king" selected>King</option>
+              <option value="rush">Rush</option>
+              <option value="felt">Felt</option>
+              <option value="neon">Neon</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row">
+          <button id="btn-play" type="button" class="primary">Play</button>
+          <button id="btn-cancel" type="button" disabled>Cancel queue</button>
+        </div>
+
+        <div class="meta">
+          <p class="status" id="status">Connecting…</p>
+          <p class="ids" id="ids"></p>
+          <p class="policy" id="policy"></p>
+        </div>
+
+        <div class="seats-wrap">
+          <h2>Match seats <span id="seat-count"></span></h2>
+          <ul id="seat-list" class="seat-list"></ul>
+        </div>
+      </section>
+
+      <div class="play" id="play" hidden>
+        <p class="play-status" id="playStatus" hidden></p>
+        <button id="btn-leave" type="button" hidden disabled>Leave</button>
+        <div id="board" class="board"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
